@@ -7,7 +7,7 @@
 
 // Phase 4 -- User Function Prototypes
 extern int Sleep(int seconds);
-extern int DiskRead(void *address, int sectors, int startTrack, int startSector, int units);
-extern int DiskWrite(void *address, int sectors, int startTrack, int startSector, int units);
+extern int DiskRead(void *address, int sectors, int startTrack, int startSector, int units, int *status);
+extern int DiskWrite(void *address, int sectors, int startTrack, int startSector, int units, int *status);
 #endif
 //TODO more later

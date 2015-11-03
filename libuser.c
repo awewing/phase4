@@ -21,3 +21,35 @@ int Sleep(int seconds) {
 
     return (long) sysArg.arg4;
 }
+
+int DiskRead(void *address, int sectors, int startTrack, int startSector, int units, int *status) {
+    systemArgs sysArg;
+
+    CHECKMODE;
+    sysArg.number = SYS_DISKREAD;
+    sysArg.arg1 = address;
+    sysArg.arg2 = (void *) ( (long) sectors);
+    sysArg.arg3 = (void *) ( (long) startTrack);
+    sysArg.arg4 = (void *) ( (long) startSector);
+    sysArg.arg5 = (void *) ( (long) units);
+
+    USLOSS_Syscall(&sysArg);
+    *status = (int) sysArg.arg1;
+    return (int) sysArg.arg4;
+}
+
+int DiskWrite(void *address, int sectors, int startTrack, int startSector, int units, int*status) {
+    systemArgs sysArg;
+
+    CHECKMODE;
+    sysArg.number = SYS_DISKWRITE;
+    sysArg.arg1 = address;
+    sysArg.arg2 = (void *) ( (long) sectors);
+    sysArg.arg3 = (void *) ( (long) startTrack);
+    sysArg.arg4 = (void *) ( (long) startSector);
+    sysArg.arg5 = (void *) ( (long) units);
+
+    USLOSS_Syscall(&sysArg);
+    *status = (int) sysArg.arg1;
+    return (int) sysArg.arg4;
+}

@@ -1,13 +1,14 @@
 #include <usloss.h>
+#include <usyscall.h>
 #include <phase1.h>
 #include <phase2.h>
 #include <phase3.h>
 #include <phase4.h>
+#include <provided_prototypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
 /**************************************************************************************************
- *
  * phase4.c
  *
  * Authors: Alex Ewing
@@ -21,6 +22,20 @@
  ***********************************************/
 static int      ClockDriver(char *);
 static int      DiskDriver(char *);
+
+static void sleep(systemArgs *args);
+static void diskRead(systemArgs *args);
+static void diskWrite(systemArgs *args);
+static void diskSize(systemArgs *args);
+static void termRead(systemArgs *args);
+static void termWrite(systemArgs *args);
+
+int sleepReal(int seconds);
+int diskReadReal(int unit, int track, int first, int sectors, void *buffer);
+int diskWriteReal(int unit, int track, int first, int sectors, void *buffer);
+int diskSizeReal(int unit, int *sector, int *track, int *disk);
+int termReadReal(int unit, int size, char *buffer);
+int termWriteReal(int unit, int size, char *text);
 /***********************************************/
 
 /************************************************
@@ -41,6 +56,14 @@ void start3(void) {
      * Check kernel mode here.
      */
 
+    // init sysvec
+    systemCallVec[SYS_SLEEP] = sleep;
+    systemCallVec[SYS_DISKREAD] = diskRead;
+    systemCallVec[SYS_DISKWRITE] = diskWrite;
+    systemCallVec[SYS_DISKSIZE] = diskSize;
+    systemCallVec[SYS_TERMREAD] = termRead;
+    systemCallVec[SYS_TERMWRITE] = termWrite;
+
     // initialize procTable
     for (int i = 0; i < MAXPROC; i++) {
         ProcTable[i].wakeUpTime = -1;
@@ -52,7 +75,7 @@ void start3(void) {
      * I am assuming a semaphore here for coordination.  A mailbox can
      * be used instead -- your choice.
      */
-    running = semCreateReal(0);
+    running = semcreateReal(0);
     clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
     if (clockPID < 0) {
 	    USLOSS_Console("start3(): Can't create clock driver\n");
@@ -63,7 +86,7 @@ void start3(void) {
      * will V the semaphore "running" once it is running.
      */
 
-    semPReal(running);
+    sempReal(running);
 
     /*
      * Create the disk device drivers here.  You may need to increase
@@ -79,8 +102,8 @@ void start3(void) {
             USLOSS_Halt(1);
         }
     }
-    semPReal(running);
-    semPReal(running);
+    sempReal(running);
+    sempReal(running);
 
     /*
      * Create terminal device drivers.
@@ -112,11 +135,11 @@ static int ClockDriver(char *arg) {
     int status;
 
     // Let the parent know we are running and enable interrupts.
-    semVReal(running);
+    semvReal(running);
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
-    while(! isZapped()) {
+    while(!isZapped()) {
 	    result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
 	    if (result != 0) {
 	        return 0;
@@ -131,13 +154,25 @@ static int ClockDriver(char *arg) {
     return 0;
 }
 
+static int DiskDriver(char *arg) {
+    int unit = atoi( (char *) arg); 	// Unit is passed as arg.
+    return 0;
+}
+
+static void sleep(systemArgs *args) {}
+static void diskRead(systemArgs *args) {}
+static void diskWrite(systemArgs *args) {}
+static void diskSize(systemArgs *args) {}
+static void termRead(systemArgs *args) {}
+static void termWrite(systemArgs *args) {}
+
 int sleepReal(int seconds) {
     if (seconds < 0) {
         return 1;
     }
 
     int pid = getpid();
-    long wakeTime = USLOSS_Clock + (seconds * 1000000);
+    long wakeTime = USLOSS_Clock() + (seconds * 1000000);
     ProcTable[pid].wakeUpTime = wakeTime;
 
     // Insert this proc into the queue of procs to be woken up by clock driver
@@ -157,7 +192,22 @@ int sleepReal(int seconds) {
     return 0;
 }
 
-static int DiskDriver(char *arg) {
-    int unit = atoi( (char *) arg); 	// Unit is passed as arg.
+int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
+    return 0;
+}
+
+int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
+    return 0;
+}
+
+int diskSizeReal(int unit, int *sector, int *track, int *disk) {
+    return 0;
+}
+
+int termReadReal(int unit, int size, char *buffer) {
+    return 0;
+}
+
+int termWriteReal(int unit, int size, char *text) {
     return 0;
 }

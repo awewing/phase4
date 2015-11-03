@@ -21,7 +21,7 @@ extern void semFree(systemArgs *args);
 extern void getTimeOfDay(systemArgs *args);
 extern void cpuTime(systemArgs *args);
 extern void getPID(systemArgs *args);
-*/
+
 
 extern int spawnReal(char *name, int(*func)(char *), char *arg, unsigned int stackSize, int priority);
 extern int spawnLaunch(char *args);
@@ -34,3 +34,4 @@ extern int semFreeReal(int semID);
 extern int getTimeOfDayReal(); 
 extern int cpuTimeReal();
 extern int getPIDReal();
+*/

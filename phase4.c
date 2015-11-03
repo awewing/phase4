@@ -116,8 +116,8 @@ static int ClockDriver(char *arg) {
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
-    while(! is_zapped()) {
-	    result = waitdevice(CLOCK_DEV, 0, &status);
+    while(! isZapped()) {
+	    result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
 	    if (result != 0) {
 	        return 0;
 	    }
@@ -127,6 +127,8 @@ static int ClockDriver(char *arg) {
 	     */
          
     }
+
+    return 0;
 }
 
 int sleepReal(int seconds) {
@@ -135,7 +137,7 @@ int sleepReal(int seconds) {
     }
 
     int pid = getpid();
-    wakeTime = USLOSS_Clock + (seconds * 1 000 000);
+    long wakeTime = USLOSS_Clock + (seconds * 1000000);
     ProcTable[pid].wakeUpTime = wakeTime;
 
     // Insert this proc into the queue of procs to be woken up by clock driver
@@ -151,6 +153,8 @@ int sleepReal(int seconds) {
         curr->nextWakeUp = &(ProcTable[pid]);
     }
     // switch to user mode
+
+    return 0;
 }
 
 static int DiskDriver(char *arg) {

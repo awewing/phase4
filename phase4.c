@@ -1,19 +1,37 @@
 #include <usloss.h>
 #include <phase1.h>
 #include <phase2.h>
-#include <stdlib.h> /* needed for atoi() */
+#include <phase3.h>
+#include <phase4.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <strings.h>
+/**************************************************************************************************
+ *
+ * phase4.c
+ *
+ * Authors: Alex Ewing
+ *          Andre Takagi
+ *
+ * Date:    11/2/2015
+ *************************************************************************************************/
 
-semaphore 	running;
+/************************************************
+ * Prototypes
+ ***********************************************/
+static int      ClockDriver(char *);
+static int      DiskDriver(char *);
+/***********************************************/
 
-static int	ClockDriver(char *);
-static int	DiskDriver(char *);
+/************************************************
+ * Globals
+ ***********************************************/
+ int running; // the semaphore thats running
+/***********************************************/
 
-void
-start3(void)
-{
+void start3(void) {
     char	name[128];
     char        termbuf[10];
-    int		i;
     int		clockPID;
     int		pid;
     int		status;
@@ -26,7 +44,7 @@ start3(void)
      * I am assuming a semaphore here for coordination.  A mailbox can
      * be used instead -- your choice.
      */
-    running = semcreateReal(0);
+    running = semCreateReal(0);
     clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
     if (clockPID < 0) {
 	USLOSS_Console("start3(): Can't create clock driver\n");
@@ -37,15 +55,15 @@ start3(void)
      * will V the semaphore "running" once it is running.
      */
 
-    sempReal(running);
+    semPReal(running);
 
     /*
      * Create the disk device drivers here.  You may need to increase
      * the stack size depending on the complexity of your
      * driver, and perhaps do something with the pid returned.
      */
-
-    for (i = 0; i < DISK_UNITS; i++) {
+    char buf[DISK_UNITS];
+    for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
         sprintf(buf, "%d", i);
         pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 2);
         if (pid < 0) {
@@ -53,8 +71,8 @@ start3(void)
             USLOSS_Halt(1);
         }
     }
-    sempReal(running);
-    sempReal(running);
+    semPReal(running);
+    semPReal(running);
 
     /*
      * Create terminal device drivers.
@@ -81,19 +99,17 @@ start3(void)
     
 }
 
-static int
-ClockDriver(char *arg)
-{
+static int ClockDriver(char *arg) {
     int result;
     int status;
 
     // Let the parent know we are running and enable interrupts.
-    semvReal(running);
+    semVReal(running);
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
-    while(! is_zapped()) {
-	result = waitdevice(CLOCK_DEV, 0, &status);
+    while(! isZapped()) {
+	result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
 	if (result != 0) {
 	    return 0;
 	}
@@ -102,11 +118,11 @@ ClockDriver(char *arg)
 	 * whose time has come.
 	 */
     }
+
+    return 0;
 }
 
-static int
-DiskDriver(char *arg)
-{
+static int DiskDriver(char *arg) {
     int unit = atoi( (char *) arg); 	// Unit is passed as arg.
     return 0;
 }

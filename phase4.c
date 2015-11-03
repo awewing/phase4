@@ -179,16 +179,24 @@ int sleepReal(int seconds) {
     if (waitQ == NULL) {
         waitQ = &(ProcTable[pid]);
     }
+    else if (waitQ->wakeUpTime > wakeTime) {
+        procPtr temp = waitQ->nextWakeUp;
+        waitQ->nextWakeUp = &(ProcTable[pid]);
+        ProcTable[pid].nextWakeUp = temp;
+    }
     else {
         procPtr curr = waitQ;
-        while (curr->nextWakeUp != NULL && curr->wakeUpTime < wakeTime) {
+        while (curr->nextWakeUp != NULL && curr->nextWakeUp->wakeUpTime < wakeTime) {
             curr = curr->nextWakeUp;
         }
 
+        // put proc into Q
+        procPtr temp = curr->nextWakeUp;
         curr->nextWakeUp = &(ProcTable[pid]);
+        ProcTable[pid].nextWakeUp = temp;
     }
     // switch to user mode
-
+    setUserMode();
     return 0;
 }
 

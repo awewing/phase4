@@ -1,18 +1,21 @@
 #include <usloss.h>
 #include <phase1.h>
 #include <phase2.h>
+#include <procs.h>
 #include <stdlib.h> /* needed for atoi() */
 
 semaphore 	running;
 
 static int	ClockDriver(char *);
 static int	DiskDriver(char *);
+process ProcTable[MAXPROC];
+procPtr waitQ;
 
 void
 start3(void)
 {
     char	name[128];
-    char        termbuf[10];
+    char    termbuf[10];
     int		i;
     int		clockPID;
     int		pid;
@@ -20,6 +23,12 @@ start3(void)
     /*
      * Check kernel mode here.
      */
+
+    // initialize procTable
+    for (int i = 0; i < MAXPROC; i++) {
+        ProcTable[i].wakeUpTime = -1;
+        ProcTable[i].nextWakeUp = NULL;
+    }
 
     /*
      * Create clock device driver 
@@ -29,8 +38,8 @@ start3(void)
     running = semcreateReal(0);
     clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
     if (clockPID < 0) {
-	USLOSS_Console("start3(): Can't create clock driver\n");
-	USLOSS_Halt(1);
+	    USLOSS_Console("start3(): Can't create clock driver\n");
+	    USLOSS_Halt(1);
     }
     /*
      * Wait for the clock driver to start. The idea is that ClockDriver
@@ -93,15 +102,35 @@ ClockDriver(char *arg)
 
     // Infinite loop until we are zap'd
     while(! is_zapped()) {
-	result = waitdevice(CLOCK_DEV, 0, &status);
-	if (result != 0) {
-	    return 0;
-	}
-	/*
-	 * Compute the current time and wake up any processes
-	 * whose time has come.
-	 */
+	    result = waitdevice(CLOCK_DEV, 0, &status);
+	    if (result != 0) {
+	        return 0;
+	    }
+	    /*
+	     * Compute the current time and wake up any processes
+	     * whose time has come.
+	     */
+         
     }
+}
+
+int sleepReal(int seconds) {
+    if (seconds < 0) {
+        return 1;
+    }
+
+    int pid = getpid();
+    wakeTime = USLOSS_Clock + (seconds * 1 000 000);
+    ProcTable[pid].wakeUpTime = wakeTime;
+
+    // Insert this proc into the queue of procs to be woken up by clock driver
+    procPtr curr = waitQ;
+    while (curr != NULL && curr->wakeUpTime < wakeTime) {
+
+        curr = curr->nextWakeUp;
+    }
+
+    // switch to user mode
 }
 
 static int

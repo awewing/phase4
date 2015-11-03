@@ -20,27 +20,32 @@
 /************************************************
  * Prototypes
  ***********************************************/
-static int      ClockDriver(char *);
-static int      DiskDriver(char *);
+ static int      ClockDriver(char *);
+ static int      DiskDriver(char *);
 
-static void sleep(systemArgs *args);
-static void diskRead(systemArgs *args);
-static void diskWrite(systemArgs *args);
-static void diskSize(systemArgs *args);
-static void termRead(systemArgs *args);
-static void termWrite(systemArgs *args);
+ static void sleep(systemArgs *args);
+ static void diskRead(systemArgs *args);
+ static void diskWrite(systemArgs *args);
+ static void diskSize(systemArgs *args);
+ static void termRead(systemArgs *args);
+ static void termWrite(systemArgs *args);
 
-int sleepReal(int seconds);
-int diskReadReal(int unit, int track, int first, int sectors, void *buffer);
-int diskWriteReal(int unit, int track, int first, int sectors, void *buffer);
-int diskSizeReal(int unit, int *sector, int *track, int *disk);
-int termReadReal(int unit, int size, char *buffer);
-int termWriteReal(int unit, int size, char *text);
+ int sleepReal(int seconds);
+ int diskReadReal(int unit, int track, int first, int sectors, void *buffer);
+ int diskWriteReal(int unit, int track, int first, int sectors, void *buffer);
+ int diskSizeReal(int unit, int *sector, int *track, int *disk);
+ int termReadReal(int unit, int size, char *buffer);
+ int termWriteReal(int unit, int size, char *text);
+
+ void setUserMode();
+ void check_kernel_mode(char* name);
 /***********************************************/
 
 /************************************************
  * Globals
  ***********************************************/
+ int debugflag4;
+
  int running; // the semaphore thats running
  process ProcTable[MAXPROC];
  procPtr waitQ;
@@ -52,9 +57,11 @@ void start3(void) {
     int		clockPID;
     int		pid;
     int		status;
+
     /*
      * Check kernel mode here.
      */
+    check_kernel_mode("start3");
 
     // init sysvec
     systemCallVec[SYS_SLEEP] = sleep;
@@ -159,14 +166,163 @@ static int DiskDriver(char *arg) {
     return 0;
 }
 
-static void sleep(systemArgs *args) {}
-static void diskRead(systemArgs *args) {}
-static void diskWrite(systemArgs *args) {}
-static void diskSize(systemArgs *args) {}
-static void termRead(systemArgs *args) {}
-static void termWrite(systemArgs *args) {}
+static void sleep(systemArgs *args) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: sleep\n", getpid());
+    }
+
+    // get value from args
+    int seconds = (long) args->arg1;
+
+    // sleep
+    int status = sleepReal(seconds);
+
+    // check if sleep was successful
+    if (status == 1) {
+        args->arg4 = (void *) -1L;
+    }
+    else {
+        args->arg4 = (void *) 0L;
+    }
+}
+
+static void diskRead(systemArgs *args) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: diskRead\n", getpid());
+    }
+
+    // variables
+    int unit     = (long) args->arg5;
+    int track    = (long) args->arg3;
+    int first    = (long) args->arg4;
+    int sectors  = (long) args->arg2;
+    void *buffer = args->arg1;
+
+    // do the read
+    long status = diskReadReal(unit, track, first, sectors, buffer);
+
+    // check for bad input
+    if (status == -1) {
+        args->arg4 = (void *) -1L;
+        return;
+    }
+
+    // set the args
+    args->arg1 = (void *) status;
+    args->arg4 = (void *) 0L;
+}
+
+static void diskWrite(systemArgs *args) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: diskWrite\n", getpid());
+    }
+
+    // variables
+    int unit     = (long) args->arg5;
+    int track    = (long) args->arg3;
+    int first    = (long) args->arg4;
+    int sectors  = (long) args->arg2;
+    void *buffer = args->arg1;
+
+    // do the read
+    long status = diskReadReal(unit, track, first, sectors, buffer);
+
+    // check for bad input
+    if (status == -1) {
+        args->arg4 = (void *) -1L;
+        return;
+    }
+
+    // set the args
+    args->arg1 = (void *) status;
+    args->arg4 = (void *) 0L;
+}
+
+static void diskSize(systemArgs *args) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: diskSize\n", getpid());
+    }
+
+    // variables
+    int unit = (long) args->arg1;
+    int sector;
+    int track;
+    int disk;
+
+    // do the size check
+    int status = diskSizeReal(unit, &sector, &track, &disk);
+
+    // check for bad input
+    if (status == -1) {
+        args->arg4 = (void *) -1L;
+        return;
+    }
+
+    // convert ints to long
+    long sectorL = sector;
+    long trackL  = track;
+    long diskL   = disk;
+
+    // set the args
+    args->arg1 = (void *) sectorL;
+    args->arg2 = (void *) trackL;
+    args->arg3 = (void *) diskL;
+    args->arg4 = (void *) 0L;
+}
+
+static void termRead(systemArgs *args) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: termRead\n", getpid());
+    }
+
+    // variables
+    char *buffer = (char *) args->arg1;
+    int size     = (long) args->arg2;
+    int unit     = (long) args->arg3;
+
+    // do the size check
+    long status = termReadReal(unit, size, buffer);
+
+    // check for bad input
+    if (status == -1) {
+        args->arg4 = (void *) -1L;
+        return;
+    }
+
+    // set the args
+    args->arg2 = (void *) status;
+    args->arg4 = (void *) 0L;
+}
+
+static void termWrite(systemArgs *args) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: termWrite\n", getpid());
+    }
+
+    // variables
+    char *buffer = (char *) args->arg1;
+    int size     = (long) args->arg2;
+    int unit     = (long) args->arg3;
+
+    // do the size check
+    long status = termReadReal(unit, size, buffer);
+
+    // check for bad input
+    if (status == -1) {
+        args->arg4 = (void *) -1L;
+        return;
+    }
+
+    // set the args
+    args->arg2 = (void *) status;
+    args->arg4 = (void *) 0L;
+}
 
 int sleepReal(int seconds) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: sleepReal\n", getpid());
+    }
+
     if (seconds < 0) {
         return 1;
     }
@@ -188,26 +344,65 @@ int sleepReal(int seconds) {
         curr->nextWakeUp = &(ProcTable[pid]);
     }
     // switch to user mode
+    setUserMode();
 
     return 0;
 }
 
 int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: diskReadReal\n", getpid());
+    }
+
     return 0;
 }
 
 int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: diskWriteReal\n", getpid());
+    }
+
     return 0;
 }
 
 int diskSizeReal(int unit, int *sector, int *track, int *disk) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: diskSizeReal\n", getpid());
+    }
+
     return 0;
 }
 
 int termReadReal(int unit, int size, char *buffer) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: termReadReal\n", getpid());
+    }
+
     return 0;
 }
 
 int termWriteReal(int unit, int size, char *text) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: termWriteReal\n", getpid());
+    }
+
     return 0;
+}
+
+/*
+ * setUserMode:
+ *  kernel --> user
+ */
+void setUserMode() {
+    USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
+}
+
+/*
+ * Checks if we are in Kernel mode
+ */
+void check_kernel_mode(char *name) {
+    if ((USLOSS_PSR_CURRENT_MODE & USLOSS_PsrGet()) == 0) {
+        USLOSS_Console("%s(): Called while in user mode by process %d. Halting...\n",name, getpid());
+        USLOSS_Halt(1);
+    }
 }

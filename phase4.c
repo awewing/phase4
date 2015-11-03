@@ -27,6 +27,8 @@ static int      DiskDriver(char *);
  * Globals
  ***********************************************/
  int running; // the semaphore thats running
+ process ProcTable[MAXPROC];
+ procPtr waitQ;
 /***********************************************/
 
 void start3(void) {
@@ -39,6 +41,12 @@ void start3(void) {
      * Check kernel mode here.
      */
 
+    // initialize procTable
+    for (int i = 0; i < MAXPROC; i++) {
+        ProcTable[i].wakeUpTime = -1;
+        ProcTable[i].nextWakeUp = NULL;
+    }
+
     /*
      * Create clock device driver 
      * I am assuming a semaphore here for coordination.  A mailbox can
@@ -47,8 +55,8 @@ void start3(void) {
     running = semCreateReal(0);
     clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
     if (clockPID < 0) {
-	USLOSS_Console("start3(): Can't create clock driver\n");
-	USLOSS_Halt(1);
+	    USLOSS_Console("start3(): Can't create clock driver\n");
+	    USLOSS_Halt(1);
     }
     /*
      * Wait for the clock driver to start. The idea is that ClockDriver
@@ -108,18 +116,36 @@ static int ClockDriver(char *arg) {
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
-    while(! isZapped()) {
-	result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
-	if (result != 0) {
-	    return 0;
-	}
-	/*
-	 * Compute the current time and wake up any processes
-	 * whose time has come.
-	 */
+    while(! is_zapped()) {
+	    result = waitdevice(CLOCK_DEV, 0, &status);
+	    if (result != 0) {
+	        return 0;
+	    }
+	    /*
+	     * Compute the current time and wake up any processes
+	     * whose time has come.
+	     */
+         
+    }
+}
+
+int sleepReal(int seconds) {
+    if (seconds < 0) {
+        return 1;
     }
 
-    return 0;
+    int pid = getpid();
+    wakeTime = USLOSS_Clock + (seconds * 1 000 000);
+    ProcTable[pid].wakeUpTime = wakeTime;
+
+    // Insert this proc into the queue of procs to be woken up by clock driver
+    procPtr curr = waitQ;
+    while (curr != NULL && curr->wakeUpTime < wakeTime) {
+
+        curr = curr->nextWakeUp;
+    }
+
+    // switch to user mode
 }
 
 static int DiskDriver(char *arg) {

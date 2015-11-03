@@ -1,4 +1,15 @@
 /*
+ * Process structures
+ */
+typedef struct procStruct process;
+typedef struct procStruct * procPtr;
+
+struct procStruct {
+	int			wakeUpTime;
+	procPtr			nextWakeUp;			// points to next process in the queue of processes to be woken up.
+};
+
+/*
  * These are the definitions for phase 4 of the project (support level, part 2).
  */
 

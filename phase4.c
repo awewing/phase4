@@ -139,12 +139,17 @@ int sleepReal(int seconds) {
     ProcTable[pid].wakeUpTime = wakeTime;
 
     // Insert this proc into the queue of procs to be woken up by clock driver
-    procPtr curr = waitQ;
-    while (curr != NULL && curr->wakeUpTime < wakeTime) {
-
-        curr = curr->nextWakeUp;
+    if (waitQ == NULL) {
+        waitQ = &(ProcTable[pid]);
     }
+    else {
+        procPtr curr = waitQ;
+        while (curr->nextWakeUp != NULL && curr->wakeUpTime < wakeTime) {
+            curr = curr->nextWakeUp;
+        }
 
+        curr->nextWakeUp = &(ProcTable[pid]);
+    }
     // switch to user mode
 }
 

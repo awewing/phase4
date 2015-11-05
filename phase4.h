@@ -5,8 +5,10 @@ typedef struct procStruct process;
 typedef struct procStruct * procPtr;
 
 struct procStruct {
-	int			wakeUpTime;
-	procPtr			nextWakeUp;			// points to next process in the queue of processes to be woken up.
+    int     wakeUpTime;
+    int     sleepSem;
+    procPtr nextWakeUp;	// points to next process in the queue of processes to be woken up.
+    int     numTracks; 
 };
 
 /*

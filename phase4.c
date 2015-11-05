@@ -22,6 +22,9 @@
  ***********************************************/
  static int      ClockDriver(char *);
  static int      DiskDriver(char *);
+ static int      TermDriver(char *);
+ static int      TermReader(char *);
+ static int      TermWriter(char *);
 
  static void sleep(systemArgs *args);
  static void diskRead(systemArgs *args);
@@ -46,7 +49,7 @@
  ***********************************************/
  int debugflag4;
 
- int running; // the semaphore thats running
+ int running; // the semaphore that waits for drivers to start
  process ProcTable[MAXPROC];
  procPtr waitQ;
 /***********************************************/
@@ -64,16 +67,17 @@ void start3(void) {
     check_kernel_mode("start3");
 
     // init sysvec
-    systemCallVec[SYS_SLEEP] = sleep;
-    systemCallVec[SYS_DISKREAD] = diskRead;
+    systemCallVec[SYS_SLEEP]     = sleep;
+    systemCallVec[SYS_DISKREAD]  = diskRead;
     systemCallVec[SYS_DISKWRITE] = diskWrite;
-    systemCallVec[SYS_DISKSIZE] = diskSize;
-    systemCallVec[SYS_TERMREAD] = termRead;
+    systemCallVec[SYS_DISKSIZE]  = diskSize;
+    systemCallVec[SYS_TERMREAD]  = termRead;
     systemCallVec[SYS_TERMWRITE] = termWrite;
 
     // initialize procTable
     for (int i = 0; i < MAXPROC; i++) {
         ProcTable[i].wakeUpTime = -1;
+        ProcTable[i].sleepSem = semcreateReal(0);
         ProcTable[i].nextWakeUp = NULL;
     }
 
@@ -105,17 +109,49 @@ void start3(void) {
         sprintf(buf, "%d", i);
         pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 2);
         if (pid < 0) {
-            USLOSS_Console("start3(): Can't create term driver %d\n", i);
+            USLOSS_Console("start3(): Can't create disk driver %d\n", i);
             USLOSS_Halt(1);
         }
+
+        // wait for disk driver to start
+        sempReal(running);
     }
-    sempReal(running);
-    sempReal(running);
 
     /*
      * Create terminal device drivers.
      */
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++ ) {
+        // specify which terminal unit this is
+        void *unit = (void *)(long) i;
 
+        // TODO do something with term buff?????
+
+        // create terminal driver
+        pid = fork1(name, TermDriver, unit, USLOSS_MIN_STACK, 2);
+        if (pid < 0) {
+            USLOSS_Console("start3(): Can't create term driver %d\n", i);
+            USLOSS_Halt(1);
+        }
+
+        // create terminal reader
+        pid = fork1(name, TermReader, unit, USLOSS_MIN_STACK, 2);
+        if (pid < 0) {
+            USLOSS_Console("start3(): Can't create term reader %d\n", i);
+            USLOSS_Halt(1);
+        }
+
+        // create terminal writer
+        pid = fork1(name, TermWriter, unit, USLOSS_MIN_STACK, 2);
+        if (pid < 0) {
+            USLOSS_Console("start3(): Can't create term writer %d\n", i);
+            USLOSS_Halt(1);
+        }
+        
+        // wait for all to start
+        sempReal(running);
+        sempReal(running);
+        sempReal(running);
+    }
 
     /*
      * Create first user-level process and wait for it to finish.
@@ -147,22 +183,64 @@ static int ClockDriver(char *arg) {
 
     // Infinite loop until we are zap'd
     while(!isZapped()) {
-	    result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
-	    if (result != 0) {
-	        return 0;
-	    }
-	    /*
-	     * Compute the current time and wake up any processes
-	     * whose time has come.
-	     */
-         
+        result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
+	if (result != 0) {
+            return 0;
+        }
+        /*
+         * Compute the current time and wake up any processes
+         * whose time has come.
+         */
+        for (int i = 0; i < MAXPROC; i++) {
+            if (ProcTable[i].wakeUpTime >= USLOSS_Clock()) {
+                ProcTable[i].wakeUpTime = -1;
+                semvReal(ProcTable[i].sleepSem);
+            }
+        }
     }
 
     return 0;
 }
 
 static int DiskDriver(char *arg) {
-    int unit = atoi( (char *) arg); 	// Unit is passed as arg.
+    // Let the parent know we are running and enable interrupts.
+    semvReal(running);
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+
+    // unit passed as arg
+    int unit = atoi( (char *) arg);
+
+    // probably need to initialize disk stuff for this unit
+
+    // Infinite loop until we are zap'd
+    while(!isZapped()) {
+
+    }
+
+    return 0;
+}
+
+static int TermDriver(char *arg) {
+    // Let the parent know we are running and enable interrupts.
+    semvReal(running);
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+
+    return 0;
+}
+
+static int TermReader(char *arg) {
+    // Let the parent know we are running and enable interrupts.
+    semvReal(running);
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+
+    return 0;
+}
+
+static int TermWriter(char *arg) {
+    // Let the parent know we are running and enable interrupts.
+    semvReal(running);
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+
     return 0;
 }
 
@@ -323,11 +401,13 @@ int sleepReal(int seconds) {
         USLOSS_Console("process %d: sleepReal\n", getpid());
     }
 
+    // check for invalid input
     if (seconds < 0) {
         return 1;
     }
 
-    int pid = getpid();
+    // set the time to wake up
+    int pid = getpid() % MAXPROC;
     long wakeTime = USLOSS_Clock() + (seconds * 1000000);
     ProcTable[pid].wakeUpTime = wakeTime;
 
@@ -354,6 +434,9 @@ int sleepReal(int seconds) {
     // switch to user mode
     setUserMode();
 
+    // put the process to sleep by blocking until driver wakes it up
+    sempReal(ProcTable[pid].sleepSem);
+
     return 0;
 }
 
@@ -378,6 +461,13 @@ int diskSizeReal(int unit, int *sector, int *track, int *disk) {
         USLOSS_Console("process %d: diskSizeReal\n", getpid());
     }
 
+    // check if unit is valid
+        // if not return -1
+
+    // unit valid so set the variables
+    sector = (int *)USLOSS_DISK_SECTOR_SIZE;
+    track = (int *)USLOSS_DISK_TRACK_SIZE;
+    disk = (int *)(long)ProcTable[unit].numTracks;
     return 0;
 }
 

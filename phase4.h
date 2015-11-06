@@ -19,7 +19,7 @@ struct procStruct {
 #define _PHASE4_H
 
 #define MAXLINE         80
-#define DISK_UNITS      10 //TODO what to really initialize as
+#define MAXLINES        10
 /*
  * Function prototypes for this phase.
  */

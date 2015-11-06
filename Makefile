@@ -53,8 +53,8 @@ clean:
 turnin: $(CSRCS) $(HDRS) $(TURNIN)
 	turnin $(ASSIGNMENT) $(CSRCS) $(HDRS) $(TURNIN)
 
-libuser4.a:	libuser4.c
-	$(CC) $(CFLAGS) -c libuser4.c
+libuser.a:	libuser4.c
+	$(CC) $(CFLAGS) -c libuser.c
 	ar -r libuser4.a libuser4.o
 
 submit: $(CSRCS) $(HDRS) Makefile

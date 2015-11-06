@@ -57,6 +57,8 @@
  int charSendBox[USLOSS_TERM_UNITS];    // mailboxs for sending a character
  int lineReadBox[USLOSS_TERM_UNITS];    // mailboxs for reading a line
  int lineWriteBox[USLOSS_TERM_UNITS];   // mailboxs for writing a line
+ int diskReadBox
+ int diskWriteBox
 /***********************************************/
 
 void start3(void) {
@@ -206,11 +208,12 @@ static int ClockDriver(char *arg) {
          * Compute the current time and wake up any processes
          * whose time has come.
          */
-        for (int i = 0; i < MAXPROC; i++) {
-            if (ProcTable[i].wakeUpTime >= USLOSS_Clock()) {
-                ProcTable[i].wakeUpTime = -1;
-                semvReal(ProcTable[i].sleepSem);
-            }
+        while (waitQ != NULL && waitQ.wakeUpTime < USLOSS_Clock()) {
+            // remove curr from Q and look at next element
+            procPtr temp = waitQ.nextWakeUp;
+            waitQ.nextWakeUp = NULL;
+            waitQ.wakeUpTime = -1;
+            waitQ = temp;
         }
     }
 
@@ -229,7 +232,13 @@ static int DiskDriver(char *arg) {
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
+        // block on disk sem
 
+        // take request from Q
+
+        // writ or read loop for sending/receving data to/from disk
+
+        // send data and wake user 
 
     }
 
@@ -544,6 +553,20 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
         USLOSS_Console("process %d: diskReadReal\n", getpid());
     }
 
+
+    // create request for all sectors we want to read from
+    for (int i = 0; i < sectors; i++) {
+        // create request
+        USLOSS_DeviceRequest request;
+        request.opr = USLOSS_DISK_READ;
+
+        // track we read and where we stor information in buffer determined by i
+        request.reg1 = (first + i) % 16;
+        request.reg2 = buffer + (512 * i);
+
+        // put request on queue
+        
+    }
     return 0;
 }
 

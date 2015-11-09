@@ -57,7 +57,12 @@
  int charSendBox[USLOSS_TERM_UNITS];    // mailboxs for sending a character
  int lineReadBox[USLOSS_TERM_UNITS];    // mailboxs for reading a line
  int lineWriteBox[USLOSS_TERM_UNITS];   // mailboxs for writing a line
+<<<<<<< HEAD
  int pidBox[USLOSS_TERM_UNITS];         // mailboxs for sending a pid
+=======
+ int diskReadBox
+ int diskWriteBox
+>>>>>>> 18865355ae6dcbd4c93264974e3e77e1784365ff
 /***********************************************/
 
 void start3(void) {
@@ -215,12 +220,12 @@ static int ClockDriver(char *arg) {
          * Compute the current time and wake up any processes
          * whose time has come.
          */
-        while (waitQ != NULL && waitQ->wakeUpTime >= USLOSS_Clock()) {
+        while (waitQ != NULL && waitQ->wakeUpTime < USLOSS_Clock()) {
+            // remove curr from Q and look at next element
+            procPtr temp = waitQ->nextWakeUp;
+            waitQ->nextWakeUp = NULL;
             waitQ->wakeUpTime = -1;
-            semvReal(waitQ->sleepSem);
-
-            // change the new head of waitQ
-            waitQ = waitQ->nextWakeUp;
+            waitQ = temp;
         }
     }
 
@@ -239,7 +244,13 @@ static int DiskDriver(char *arg) {
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
+        // block on disk sem
 
+        // take request from Q
+
+        // writ or read loop for sending/receving data to/from disk
+
+        // send data and wake user 
 
     }
 
@@ -551,6 +562,20 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
         USLOSS_Console("process %d: diskReadReal\n", getpid());
     }
 
+
+    // create request for all sectors we want to read from
+    for (int i = 0; i < sectors; i++) {
+        // create request
+        USLOSS_DeviceRequest request;
+        request.opr = USLOSS_DISK_READ;
+
+        // track we read and where we stor information in buffer determined by i
+        request.reg1 = (first + i) % 16;
+        request.reg2 = buffer + (512 * i);
+
+        // put request on queue
+        
+    }
     return 0;
 }
 

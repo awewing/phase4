@@ -3,13 +3,24 @@
  */
 typedef struct procStruct process;
 typedef struct procStruct * procPtr;
+typedef struct request request;
+typedef struct reqPtr *request;
 
 struct procStruct {
     int     wakeUpTime;
     int     sleepSem;
     int     termSem;
     procPtr nextWakeUp;	// points to next process in the queue of processes to be woken up.
-    int     numTracks; 
+};
+
+struct request {
+	int track;
+	int startSector;
+	int numSectors;
+	int waitingPID;
+	void * buffer;
+	int reqType;
+	reqPtr nextReq;
 };
 
 /*

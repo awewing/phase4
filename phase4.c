@@ -59,8 +59,12 @@
  int lineWriteBox[USLOSS_TERM_UNITS];   // mailboxs for writing a line
  int pidBox[USLOSS_TERM_UNITS];         // mailboxs for sending a pid
 
- int diskReadBox;
- int diskWriteBox;
+int diskSem[USLOSS_DISK_UNITS];
+reqPtr topQ[USLOSS_DISK_UNITS];
+reqPtr bottomQ[USLOSS_DISK_UNITS];
+int diskReq[USLOSS_DISK_UNITS];
+int diskArm[USLOSS_DISK_UNITS];
+int numTracks[USLOSS_DISK_UNITS];
 /***********************************************/
 
 void start3(void) {
@@ -230,18 +234,35 @@ static int ClockDriver(char *arg) {
 }
 
 static int DiskDriver(char *arg) {
-    // Let the parent know we are running and enable interrupts.
+    // Let the parent know we are running and enable interrupts. (should this be below init?)
     semvReal(running);
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // unit passed as arg
     int unit = atoi( (char *) arg);
 
+    // initialize global variables
+    topQ[unit] = semcreateReal(0);
+    bottomQ[unit] = NULL;
+    diskReq[unit] = NULL;
+    diskArm[unit] = 0;
+
+    // create request to get numTracks
+    USLOSS_DeviceRequest req;
+    req.opr = USLOSS_DISK_TRACKS;
+    req.reg1 = &numTracks[unit];
+    USLOSS_Device_output(USLOSS_DISK_DEV, unit, &req);
+
+    // wait device idk why
+    int status;
+    waitDevice(USLOSS_DISK_DEV, unit, &status);
+
     // probably need to initialize disk stuff for this unit
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
         // block on disk sem
+        sempReal(diskSem[unit]);
 
         // take request from Q
 
@@ -573,21 +594,23 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
     if (debugflag4) {
         USLOSS_Console("process %d: diskReadReal\n", getpid());
     }
+    
+    // create request struct
+    request req;
+    req.track = track;
+    req.startSector = first;
+    req.numSectors = sectors;
+    req.waitingPID = getpid();
+    req.buffer = &buffer;
+    req.reqType = USLOSS_DISK_READ;
+    req.nextReq = NULL;
 
+    // add request to Q
+    diskRequest(req, unit);
 
-    // create request for all sectors we want to read from
-    for (int i = 0; i < sectors; i++) {
-        // create request
-        USLOSS_DeviceRequest request;
-        request.opr = USLOSS_DISK_READ;
+    // block calling process
+    sempReal(ProcTable[getpid() % MAXPROC].sleepSem);
 
-        // track we read and where we stor information in buffer determined by i
-        request.reg1 = (first + i) % 16;
-        request.reg2 = buffer + (512 * i);
-
-        // put request on queue
-        
-    }
     return 0;
 }
 
@@ -596,7 +619,52 @@ int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
         USLOSS_Console("process %d: diskWriteReal\n", getpid());
     }
 
+    // create request struct
+    request req;
+    req.track = track;
+    req.startSector = first;
+    req.numSectors = sectors;
+    req.waitingPID = getpid();
+    req.buffer = &buffer;
+    req.reqType = USLOSS_DISK_WRITE;
+    req.nextReq = NULL;
+
+    // add request to Q
+    diskRequest(req, unit);
+
+    // block calling process
+    sempReal(ProcTable[getpid() % MAXPROC].sleepSem);
+    
     return 0;
+}
+
+void diskRequest(request req, int unit) {
+    // find q to insert into
+    reqPtr Q;
+    if (req.track > diskArm[unit]) {
+        Q = topQ[unit];
+    }
+    else {
+        Q = bottomQ[unit];
+    }
+
+    curr = Q;
+    prev = NULL;
+
+    // case 1, q is empty
+    if (curr == NULL) {
+        Q = &(req);
+        return;
+    }
+
+    while (curr != NULL && curr.track < req.track) {
+        prev = curr;
+        curr = curr.nextReq;
+    }
+    prev.nextReq = &req;
+    req.nextReq = curr;
+
+
 }
 
 int diskSizeReal(int unit, int *sector, int *track, int *disk) {

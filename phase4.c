@@ -251,7 +251,7 @@ static int DiskDriver(char *arg) {
     USLOSS_DeviceRequest req;
     req.opr = USLOSS_DISK_TRACKS;
     req.reg1 = &numTracks[unit];
-    USLOSS_Device_output(USLOSS_DISK_DEV, unit, &req);
+    USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &req);
 
     // wait device idk why
     int status;
@@ -265,8 +265,22 @@ static int DiskDriver(char *arg) {
         sempReal(diskSem[unit]);
 
         // take request from Q
+        reqPtr req = topQ;
+        topQ = topQ.nextReq;
 
-        // writ or read loop for sending/receving data to/from disk
+        // execute series of actual requests to USLOSSS_DISK_DEV
+        for (int i = 0; i < req.numSectors; i++) {
+            USLOSS_DeviceRequest singleRequest;
+            singleRequest.opr = req.reqType;
+            
+            // sector changes depending on i
+            singleRequest.reg1 = (req.startSector + i) % 16;
+
+            // address changes depending on which sector we are visiting.
+            singleRequest.reg2 = &(req.buffer) + (512 * i);
+        }
+
+        // write or read loop for sending/receving data to/from disk
 
         // send data and wake user 
 
@@ -680,7 +694,7 @@ int diskSizeReal(int unit, int *sector, int *track, int *disk) {
     // unit valid so set the variables
     sector = (int * )USLOSS_DISK_SECTOR_SIZE;
     track = (int *) USLOSS_DISK_TRACK_SIZE;
-    disk = (int *)(long) ProcTable[unit].numTracks;
+    disk = (int *) numTracks[unit];
 
     return 0;
 }

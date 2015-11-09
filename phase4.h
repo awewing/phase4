@@ -7,6 +7,7 @@ typedef struct procStruct * procPtr;
 struct procStruct {
     int     wakeUpTime;
     int     sleepSem;
+    int     termSem;
     procPtr nextWakeUp;	// points to next process in the queue of processes to be woken up.
     int     numTracks; 
 };

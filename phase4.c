@@ -57,12 +57,11 @@
  int charSendBox[USLOSS_TERM_UNITS];    // mailboxs for sending a character
  int lineReadBox[USLOSS_TERM_UNITS];    // mailboxs for reading a line
  int lineWriteBox[USLOSS_TERM_UNITS];   // mailboxs for writing a line
+ int pidBox[USLOSS_TERM_UNITS];         // mailboxs for sending a pid
 /***********************************************/
 
 void start3(void) {
     char	name[128];
-    int		clockPID;
-    int		pid;
     int		status;
 
     /*
@@ -82,6 +81,7 @@ void start3(void) {
     for (int i = 0; i < MAXPROC; i++) {
         ProcTable[i].wakeUpTime = -1;
         ProcTable[i].sleepSem = semcreateReal(0);
+        ProcTable[i].termSem = semcreateReal(0);
         ProcTable[i].nextWakeUp = NULL;
     }
 
@@ -90,7 +90,8 @@ void start3(void) {
         charReceiveBox[i] = MboxCreate(1, 1);
         charSendBox[i]    = MboxCreate(1, 1);
         lineReadBox[i]    = MboxCreate(10, MAXLINE);
-        lineWriteBox[i]   = MboxCreate(10, MAXLINE); // TODO does this need to have 10 slots?
+        lineWriteBox[i]   = MboxCreate(10, MAXLINE);
+        pidBox[i]         = MboxCreate(10, MAXLINE);
     }
 
     /*
@@ -99,10 +100,10 @@ void start3(void) {
      * be used instead -- your choice.
      */
     running = semcreateReal(0);
-    clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
+    int clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
     if (clockPID < 0) {
-	    USLOSS_Console("start3(): Can't create clock driver\n");
-	    USLOSS_Halt(1);
+        USLOSS_Console("start3(): Can't create clock driver\n");
+        USLOSS_Halt(1);
     }
     /*
      * Wait for the clock driver to start. The idea is that ClockDriver
@@ -116,14 +117,15 @@ void start3(void) {
      * the stack size depending on the complexity of your
      * driver, and perhaps do something with the pid returned.
      */
+    int diskpid[USLOSS_DISK_UNITS];
     char diskbuf[10];
     for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
         // specify which disk unit this is
         sprintf(diskbuf, "%d", i);
 
         // create the disk driver for this unit
-        pid = fork1(name, DiskDriver, diskbuf, USLOSS_MIN_STACK, 2);
-        if (pid < 0) {
+        diskpid[i] = fork1(name, DiskDriver, diskbuf, USLOSS_MIN_STACK, 2);
+        if (diskpid[i] < 0) {
             USLOSS_Console("start3(): Can't create disk driver %d\n", i);
             USLOSS_Halt(1);
         }
@@ -135,28 +137,29 @@ void start3(void) {
     /*
      * Create terminal device drivers.
      */
+    int termpid[USLOSS_TERM_UNITS]i[3];
     char termbuf[10];
     for (int i = 0; i < USLOSS_TERM_UNITS; i++ ) {
         // specify which terminal unit this is
         sprintf(termbuf, "%d", i);
 
         // create the terminal driver for this unit
-        pid = fork1(name, TermDriver, termbuf, USLOSS_MIN_STACK, 2);
-        if (pid < 0) {
+        termpid[i][0] = fork1(name, TermDriver, termbuf, USLOSS_MIN_STACK, 2);
+        if (termpid[i][0] < 0) {
             USLOSS_Console("start3(): Can't create term driver %d\n", i);
             USLOSS_Halt(1);
         }
 
         // create terminal reader
-        pid = fork1(name, TermReader, termbuf, USLOSS_MIN_STACK, 2);
-        if (pid < 0) {
+        termpid[i][1] = fork1(name, TermReader, termbuf, USLOSS_MIN_STACK, 2);
+        if (termpid[i][1] < 0) {
             USLOSS_Console("start3(): Can't create term reader %d\n", i);
             USLOSS_Halt(1);
         }
 
         // create terminal writer
-        pid = fork1(name, TermWriter, termbuf, USLOSS_MIN_STACK, 2);
-        if (pid < 0) {
+        termpid[i][2] = fork1(name, TermWriter, termbuf, USLOSS_MIN_STACK, 2);
+        if (termpid[i][2] < 0) {
             USLOSS_Console("start3(): Can't create term writer %d\n", i);
             USLOSS_Halt(1);
         }
@@ -180,7 +183,13 @@ void start3(void) {
     /*
      * Zap the device drivers
      */
-    zap(clockPID);  // clock driver
+    zap(clockPID);
+    for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
+        zap(diskpid[i]);
+    }
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        zap(termpid[i]);
+    }
 
     // eventually, at the end:
     quit(0);
@@ -206,11 +215,12 @@ static int ClockDriver(char *arg) {
          * Compute the current time and wake up any processes
          * whose time has come.
          */
-        for (int i = 0; i < MAXPROC; i++) {
-            if (ProcTable[i].wakeUpTime >= USLOSS_Clock()) {
-                ProcTable[i].wakeUpTime = -1;
-                semvReal(ProcTable[i].sleepSem);
-            }
+        while (waitQ != NULL && waitQ->wakeUpTime >= USLOSS_Clock()) {
+            waitQ->wakeUpTime = -1;
+            semvReal(waitQ->sleepSem);
+
+            // change the new head of waitQ
+            waitQ = waitQ->nextWakeUp;
         }
     }
 
@@ -240,7 +250,9 @@ static int TermDriver(char *arg) {
     int unit = (long) arg;
     int status;
 
-    // TODO enable interrupts????
+    // turn on read interrupts
+    long control = USLOSS_TERM_CTRL_RECV_INT(0);
+    USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
 
     // Let the parent know we are running and enable interrupts.
     semvReal(running);
@@ -315,28 +327,23 @@ static int TermWriter(char *arg) {
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char *receive; // to hold the receive character
+        char *pidC;
+        char *receive; // to hold the received line
+        int pid;
 
-        // wait until there is a character to read in
+        // turn on interrupts
+        long control = USLOSS_TERM_CTRL_XMIT_INT(0);
+        USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
+
+        // wait until termWriterReal send its pid
+        MboxReceive(pidBox[unit], pidC, sizeof(int));
+        int pid = atoi((char *) pidC);
+
+        // wait until th to read in
         MboxReceive(charReceiveBox[unit], receive, sizeof(int));
 
-        // place the character in the line and inc pos
-        line[pos] = receive;
-        pose++;
-
-        // check to see if its time to send the line
-        if (receive == '\n' || pos == MAXLINE) {
-            // send the line to the mailbox for reading lines
-            MboxCondSend(lineReadBox, line, sizeof(lines));
-
-            // clean out line
-            for (int i = 0; i < MAXLINE; i++) {
-                line[i] = '\0';
-            }
-
-            // reset pos back to 0
-            pos = 0;
-        }
+        // wake up the waiting process
+        semvReal(procTable[pid % 50].termSem);
     }
 
     return 0;
@@ -561,12 +568,15 @@ int diskSizeReal(int unit, int *sector, int *track, int *disk) {
     }
 
     // check if unit is valid
-        // if not return -1
+    if (unit < 0 || unit > USLOSS_DISK_UNITS) {
+        return -1;
+    }
 
     // unit valid so set the variables
-    sector = (int *)USLOSS_DISK_SECTOR_SIZE;
-    track = (int *)USLOSS_DISK_TRACK_SIZE;
-    disk = (int *)(long)ProcTable[unit].numTracks;
+    sector = (int * )USLOSS_DISK_SECTOR_SIZE;
+    track = (int *) USLOSS_DISK_TRACK_SIZE;
+    disk = (int *)(long) ProcTable[unit].numTracks;
+
     return 0;
 }
 
@@ -575,15 +585,19 @@ int termReadReal(int unit, int size, char *buffer) {
         USLOSS_Console("process %d: termReadReal\n", getpid());
     }
 
+    char[MAXLINE] in;
+
     // check for a line to read
-    int result = MboxReceive(lineReadBox[unit], buffer, size);
+    int result = MboxReceive(lineReadBox[unit], in, size);
+
+    memcpy(buffer, in, size);
 
     // if bad input was given
     if (result < 0) {
         return -1;
     }
 
-    return size;
+    return result;
 }
 
 int termWriteReal(int unit, int size, char *text) {
@@ -591,15 +605,23 @@ int termWriteReal(int unit, int size, char *text) {
         USLOSS_Console("process %d: termWriteReal\n", getpid());
     }
 
-    // check for a line to wrie
-    result = MboxSend(lineWriteBox[unit], text, size);
+    // send its pid
+    char *pidC;
+    sprintf(pidC, "%d", getpid());
+    MboxSend(pidBox[unit], pidC, sizeof(int));
+
+    // send its text
+    int result = MboxSend(lineWriteBox[unit], text, size);
 
     // if bad input
     if (result < 0) {
         return -1;
     }
 
-    return 0;
+    // block until termwriter is done
+    sempReal(ProcTable[getpid() % 50].termSem);
+
+    return result;
 }
 
 /*

@@ -17,4 +17,12 @@ extern int  SemCreate(int value, int *semaphore);
 extern int  SemP(int semaphore);
 extern int  SemV(int semaphore);
 extern int  SemFree(int semaphore);
+
+// Phase 4 -- User Function Prototypes
+extern int Sleep(int seconds);
+extern int DiskRead(void *address, int sectors, int startTrack, int startSector, int units, int *status);
+extern int DiskWrite(void *address, int sectors, int startTrack, int startSector, int units, int *status);
+int DiskSize(int unit, int *sector, int *track, int *disk);
+int TermRead(int unit, int size, char *buffer);
+int TermWrite(int unit, int size, char *text);
 #endif

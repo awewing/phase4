@@ -242,9 +242,10 @@ static int DiskDriver(char *arg) {
     int unit = atoi( (char *) arg);
 
     // initialize global variables
-    topQ[unit] = semcreateReal(0);
+    topQ[unit] = NULL;
     bottomQ[unit] = NULL;
-    diskReq[unit] = NULL;
+    diskSem[unit] = semcreateReal(0);
+    diskReq[unit] = semcreateReal(0);
     diskArm[unit] = 0;
 
     // create request to get numTracks
@@ -257,27 +258,25 @@ static int DiskDriver(char *arg) {
     int status;
     waitDevice(USLOSS_DISK_DEV, unit, &status);
 
-    // probably need to initialize disk stuff for this unit
-
     // Infinite loop until we are zap'd
     while (!isZapped()) {
         // block on disk sem
         sempReal(diskSem[unit]);
 
         // take request from Q
-        reqPtr req = topQ;
-        topQ = topQ.nextReq;
+        reqPtr req = topQ[unit];
+        topQ[unit] = topQ[unit]->nextReq;
 
         // execute series of actual requests to USLOSSS_DISK_DEV
-        for (int i = 0; i < req.numSectors; i++) {
+        for (int i = 0; i < req->numSectors; i++) {
             USLOSS_DeviceRequest singleRequest;
-            singleRequest.opr = req.reqType;
+            singleRequest.opr = req->reqType;
             
             // sector changes depending on i
-            singleRequest.reg1 = (req.startSector + i) % 16;
+            singleRequest.reg1 = (req->startSector + i) % 16;
 
             // address changes depending on which sector we are visiting.
-            singleRequest.reg2 = &(req.buffer) + (512 * i);
+            singleRequest.reg2 = &(req->buffer) + (512 * i);
         }
 
         // write or read loop for sending/receving data to/from disk

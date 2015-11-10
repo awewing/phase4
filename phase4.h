@@ -4,7 +4,7 @@
 typedef struct procStruct process;
 typedef struct procStruct * procPtr;
 typedef struct request request;
-typedef struct reqPtr *request;
+typedef struct request * reqPtr;
 
 struct procStruct {
     int     wakeUpTime;

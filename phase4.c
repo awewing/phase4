@@ -36,7 +36,9 @@
  int sleepReal(int seconds);
  int diskReadReal(int unit, int track, int first, int sectors, void *buffer);
  int diskWriteReal(int unit, int track, int first, int sectors, void *buffer);
+ void diskRequest(request req, int unit);
  int diskSizeReal(int unit, int *sector, int *track, int *disk);
+ void diskSeek(int unit, int track);
  int termReadReal(int unit, int size, char *buffer);
  int termWriteReal(int unit, int size, char *text);
 
@@ -267,6 +269,9 @@ static int DiskDriver(char *arg) {
         reqPtr req = topQ[unit];
         topQ[unit] = topQ[unit]->nextReq;
 
+        // Move head
+        diskSeek(unit, req.track);
+
         // execute series of actual requests to USLOSSS_DISK_DEV
         for (int i = 0; i < req->numSectors; i++) {
             USLOSS_DeviceRequest singleRequest;
@@ -279,10 +284,8 @@ static int DiskDriver(char *arg) {
             singleRequest.reg2 = &(req->buffer) + (512 * i);
         }
 
-        // write or read loop for sending/receving data to/from disk
-
-        // send data and wake user 
-
+        // wake process waiting on the disk action 
+        semvReal(ProcTable[req.waitingPID].sleepSem);
     }
 
     return 0;
@@ -510,6 +513,7 @@ static void diskSize(systemArgs *args) {
     args->arg4 = (void *) 0L;
 }
 
+
 static void termRead(systemArgs *args) {
     if (debugflag4) {
         USLOSS_Console("process %d: termRead\n", getpid());
@@ -661,8 +665,8 @@ void diskRequest(request req, int unit) {
         Q = bottomQ[unit];
     }
 
-    curr = Q;
-    prev = NULL;
+    reqPtr curr = Q;
+    reqPtr prev = NULL;
 
     // case 1, q is empty
     if (curr == NULL) {
@@ -696,6 +700,19 @@ int diskSizeReal(int unit, int *sector, int *track, int *disk) {
     disk = (int *) numTracks[unit];
 
     return 0;
+}
+
+void diskSeek(int unit, int track) {
+    if ( track >= numTracks[unit]) {
+        USLOSS_Halt();
+        return;
+    }
+
+    USLOSS_DeviceRequest req;
+    req.opr = USLOSS_DISK_SEEK;
+    req.reg1 = track;
+
+    USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, req);
 }
 
 int termReadReal(int unit, int size, char *buffer) {

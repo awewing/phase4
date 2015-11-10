@@ -54,3 +54,61 @@ int DiskWrite(void *address, int sectors, int startTrack, int startSector, int u
     *status = (long) sysArg.arg1;
     return (long) sysArg.arg4;
 }
+
+int DiskSize(int unit, int *sector, int *track, int *disk) {
+    systemArgs sysArg;
+
+    CHECKMODE;
+    sysArg.number = SYS_DISKSIZE;
+    sysArg.arg1 = (void *) ( (long) unit);
+
+    USLOSS_Syscall(&sysArg);
+    *sector = (long) sysArg.arg1;
+    *track = (long) sysArg.arg2;
+    *disk = (long) sysArg.arg3;
+    return (long) sysArg.arg4;
+}
+
+
+int TermRead(int unit, int size, char *buffer) {
+    systemArgs sysArg;
+
+    CHECKMODE;
+    sysArg.number = SYS_TERMREAD;
+    sysArg.arg1 = (void *) buffer;
+    sysArg.arg2 = (void *) ( (long) size);
+    sysArg.arg3 = (void *) ( (long) unit);
+
+    USLOSS_Syscall(&sysArg);
+
+    long success = (long) sysArg.arg4;
+    long s = (long) sysArg.arg2;
+
+    if (success < 0) {
+        return success;
+    }
+
+    return s;
+}
+
+
+int TermWrite(int unit, int size, char *text) {
+    systemArgs sysArg;
+
+    CHECKMODE;
+    sysArg.number = SYS_TERMWRITE;
+    sysArg.arg1 = (void *) text;
+    sysArg.arg2 = (void *) ( (long) size);
+    sysArg.arg3 = (void *) ( (long) unit);
+
+    USLOSS_Syscall(&sysArg);
+
+    long success = (long) sysArg.arg4;
+    long s = (long) sysArg.arg2;
+
+    if (success < 0) {
+        return success;
+    }
+
+    return s;
+}

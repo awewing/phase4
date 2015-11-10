@@ -42,6 +42,8 @@
  int termReadReal(int unit, int size, char *buffer);
  int termWriteReal(int unit, int size, char *text);
 
+void diskRequest(request req, int unit);
+
  void setUserMode();
  void check_kernel_mode(char* name);
 /***********************************************/
@@ -49,7 +51,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4;
+ int debugflag4 = 1;
 
  int running; // the semaphore that waits for drivers to start
  process ProcTable[MAXPROC];
@@ -66,7 +68,7 @@ reqPtr topQ[USLOSS_DISK_UNITS];
 reqPtr bottomQ[USLOSS_DISK_UNITS];
 int diskReq[USLOSS_DISK_UNITS];
 int diskArm[USLOSS_DISK_UNITS];
-int numTracks[USLOSS_DISK_UNITS];
+long numTracks[USLOSS_DISK_UNITS];
 /***********************************************/
 
 void start3(void) {
@@ -186,8 +188,10 @@ void start3(void) {
      * I'm assuming kernel-mode versions of the system calls
      * with lower-case first letters.
      */
-    int pid = spawnReal("start4", start4, NULL, 4 * USLOSS_MIN_STACK, 3);
-    pid = waitReal(&status);
+    spawnReal("start4", start4, NULL, 4 * USLOSS_MIN_STACK, 3);
+    waitReal(&status);
+
+    // TODO terminate the terminals somehow mysteriouslly?????
 
     /*
      * Zap the device drivers
@@ -295,13 +299,19 @@ static int TermDriver(char *arg) {
     int unit = (long) arg;
     int status;
 
-    // turn on read interrupts
-    long control = USLOSS_TERM_CTRL_RECV_INT(0);
-    USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
-
-    // Let the parent know we are running and enable interrupts.
+    // Let the parent know we are running
     semvReal(running);
-    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+
+    // turn on read interrupts
+    long control = 0;
+    control = USLOSS_TERM_CTRL_RECV_INT(control);
+    int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
+    if (res != USLOSS_DEV_OK) {
+        if (debugflag4) {
+            USLOSS_Console("process %d: TermDriver quit unexpectadly\n", getpid());
+        }
+        USLOSS_Halt(0);
+    }
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
@@ -345,11 +355,11 @@ static int TermReader(char *arg) {
         MboxReceive(charReceiveBox[unit], receive, sizeof(int));
 
         // place the character in the line and inc pos
-        line[pos] = (char) receive[0];
+        strcpy(line[pos], receive);
         pos++;
         
         // check to see if its time to send the line
-        if ((char) receive[0] == '\n' || pos == MAXLINE) {
+        if ((char) receive == '\n' || pos == MAXLINE) {
             // send the line to the mailbox for reading lines
             MboxCondSend(lineReadBox[unit], line, sizeof(line));
 
@@ -378,9 +388,10 @@ static int TermWriter(char *arg) {
         char *receive; // to hold the received line
 
         // turn on interrupts
-        long control = USLOSS_TERM_CTRL_XMIT_INT(0);
-        control = USLOSS_TERM_CTRL_RECV_INT(0);
-        USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
+        long cntr = 0;
+        cntr = USLOSS_TERM_CTRL_XMIT_INT(cntr);
+        cntr = USLOSS_TERM_CTRL_RECV_INT(cntr);
+        USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) cntr);
 
         // wait until temWriteReal sends a line
         MboxReceive(lineWriteBox[unit], receive, MAXLINE);
@@ -392,10 +403,19 @@ static int TermWriter(char *arg) {
             MboxReceive(charReceiveBox[unit], c, sizeof(int));
 
             // transmit the character
-            USLOSS_TERM_CTRL_CHAR(0, c[0]);
-            USLOSS_TERM_CTRL_XMIT_INT(0);
-            USLOSS_TERM_CTRL_XMIT_CHAR(0);
-            USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) c);
+            long control = 0;
+            control = USLOSS_TERM_CTRL_CHAR(control, c[0]);
+            control = USLOSS_TERM_CTRL_XMIT_INT(control);
+            control = USLOSS_TERM_CTRL_XMIT_CHAR(control);
+
+            // check if returned properly
+            int result = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
+            if (result != USLOSS_DEV_OK) {
+                if (debugflag4) {
+                    USLOSS_Console("process %d: TermWriter quit unexpectadly\n", getpid());
+                }
+                USLOSS_Halt(0);
+            }
         }
 
         // wait until termWriterReal send its pid
@@ -674,11 +694,11 @@ void diskRequest(request req, int unit) {
         return;
     }
 
-    while (curr != NULL && curr.track < req.track) {
+    while (curr != NULL && curr->track < req.track) {
         prev = curr;
-        curr = curr.nextReq;
+        curr = curr->nextReq;
     }
-    prev.nextReq = &req;
+    prev->nextReq = &req;
     req.nextReq = curr;
 
 
@@ -741,7 +761,7 @@ int termWriteReal(int unit, int size, char *text) {
     }
 
     // send its pid
-    char *pidC;
+    char pidC[10];
     sprintf(pidC, "%d", getpid());
     MboxSend(pidBox[unit], pidC, sizeof(int));
 

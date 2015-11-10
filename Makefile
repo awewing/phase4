@@ -14,7 +14,7 @@ PHASE3LIB = patrickphase3
 #PHASE2LIB = patrickphase2debug
 #PHASE3LIB = patrickphase3debug
 
-HDRS = libuser4.h phase1.h phase2.h phase3.h phase4.h
+HDRS = libuser.h phase1.h phase2.h phase3.h phase4.h
 
 INCLUDE = ./usloss/include
 

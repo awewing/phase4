@@ -40,9 +40,8 @@
  int termReadReal(int unit, int size, char *buffer);
  int termWriteReal(int unit, int size, char *text);
 
-void diskRequest(request req, int unit);
+ void diskRequest(request req, int unit);
 
- void setUserMode();
  void check_kernel_mode(char* name);
 /***********************************************/
 
@@ -293,7 +292,7 @@ static int DiskDriver(char *arg) {
 }
 
 static int TermDriver(char *arg) {
-    int unit = (long) arg;
+    int unit = atoi(arg);
     int status;
 
     // Let the parent know we are running
@@ -305,7 +304,7 @@ static int TermDriver(char *arg) {
     int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
     if (res != USLOSS_DEV_OK) {
         if (debugflag4) {
-            USLOSS_Console("process %d: TermDriver quit unexpectadly\n", getpid());
+            USLOSS_Console("process %d: TermDriver quit unexpectadly. Res: %d\n", getpid(), res);
         }
         USLOSS_Halt(0);
     }
@@ -337,7 +336,7 @@ static int TermDriver(char *arg) {
 }
 
 static int TermReader(char *arg) {
-    int unit = (long) arg;
+    int unit = atoi(arg);
     int pos = 0;  // position in the line to write a character
     char line[MAXLINE];
 
@@ -346,13 +345,13 @@ static int TermReader(char *arg) {
     
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char *receive; // to hold the receive character
+        char *receive = '\0'; // to hold the receive character
 
         // wait until there is a character to read in
         MboxReceive(charReceiveBox[unit], receive, sizeof(int));
 
         // place the character in the line and inc pos
-        strcpy(line[pos], receive);
+        line[pos] = receive;
         pos++;
         
         // check to see if its time to send the line
@@ -374,15 +373,14 @@ static int TermReader(char *arg) {
 }
 
 static int TermWriter(char *arg) {
-    int unit = (long) arg;
+    int unit = atoi(arg);
 
     // Let the parent know we are running
     semvReal(running);
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char *pidC;
-        char *receive; // to hold the received line
+        char *receive = '\0'; // to hold the received line
 
         // turn on interrupts
         long cntr = 0;
@@ -416,6 +414,7 @@ static int TermWriter(char *arg) {
         }
 
         // wait until termWriterReal send its pid
+        char pidC[10];
         MboxReceive(pidBox[unit], pidC, sizeof(int));
         int pid = atoi((char *) pidC);
 
@@ -614,9 +613,6 @@ int sleepReal(int seconds) {
         ProcTable[pid].nextWakeUp = temp;
     }
 
-    // switch to user mode
-    setUserMode();
-
     // put the process to sleep by blocking until driver wakes it up
     sempReal(ProcTable[pid].sleepSem);
 
@@ -760,14 +756,6 @@ int termWriteReal(int unit, int size, char *text) {
     sempReal(ProcTable[getpid() % 50].termSem);
 
     return result;
-}
-
-/*
- * setUserMode:
- *  kernel --> user
- */
-void setUserMode() {
-    USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
 }
 
 /*

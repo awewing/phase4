@@ -63,7 +63,7 @@ int DiskSize(int unit, int *sector, int *track, int *disk) {
     sysArg.arg1 = (void *) ( (long) unit);
 
     USLOSS_Syscall(&sysArg);
-    *sectors = (long) sysArg.arg1;
+    *sector = (long) sysArg.arg1;
     *track = (long) sysArg.arg2;
     *disk = (long) sysArg.arg3;
     return (long) sysArg.arg4;
@@ -82,13 +82,13 @@ int TermRead(int unit, int size, char *buffer) {
     USLOSS_Syscall(&sysArg);
 
     long success = (long) sysArg.arg4;
-    long size = (long) sysArg.arg2;
+    long s = (long) sysArg.arg2;
 
     if (success < 0) {
         return success;
     }
 
-    return size;
+    return s;
 }
 
 
@@ -104,11 +104,11 @@ int TermWrite(int unit, int size, char *text) {
     USLOSS_Syscall(&sysArg);
 
     long success = (long) sysArg.arg4;
-    long size = (long) sysArg.arg2;
+    long s = (long) sysArg.arg2;
 
     if (success < 0) {
         return success;
     }
 
-    return size;
+    return s;
 }

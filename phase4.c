@@ -346,13 +346,13 @@ static int TermReader(char *arg) {
     
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char receive; // to hold the receive character
+        char *receive; // to hold the receive character
 
         // wait until there is a character to read in
         MboxReceive(charReceiveBox[unit], receive, sizeof(int));
 
         // place the character in the line and inc pos
-        line[pos] = receive;
+        strcpy(line[pos], receive);
         pos++;
         
         // check to see if its time to send the line

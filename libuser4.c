@@ -1,7 +1,7 @@
 #include <phase1.h>
 #include <phase2.h>
 #include <phase3.h>
-#include <libuser4.h>
+#include <phase4.h>
 #include <usyscall.h>
 #include <usloss.h>
 
@@ -23,32 +23,32 @@ int Sleep(int seconds) {
     return (long) sysArg.arg4;
 }
 
-int DiskRead(void *address, int sectors, int startTrack, int startSector, int units, int *status) {
+int DiskRead(void *diskBuffer, int unit, int track, int first, int sectors, int *status) {
     systemArgs sysArg;
 
     CHECKMODE;
     sysArg.number = SYS_DISKREAD;
-    sysArg.arg1 = address;
+    sysArg.arg1 = diskBuffer;
     sysArg.arg2 = (void *) ( (long) sectors);
-    sysArg.arg3 = (void *) ( (long) startTrack);
-    sysArg.arg4 = (void *) ( (long) startSector);
-    sysArg.arg5 = (void *) ( (long) units);
+    sysArg.arg3 = (void *) ( (long) track);
+    sysArg.arg4 = (void *) ( (long) first);
+    sysArg.arg5 = (void *) ( (long) unit);
 
     USLOSS_Syscall(&sysArg);
     *status = (long) sysArg.arg1;
     return (long) sysArg.arg4;
 }
 
-int DiskWrite(void *address, int sectors, int startTrack, int startSector, int units, int*status) {
+int DiskWrite(void *diskBuffer, int unit, int track, int first, int sectors, int *status) {
     systemArgs sysArg;
 
     CHECKMODE;
     sysArg.number = SYS_DISKWRITE;
-    sysArg.arg1 = address;
+    sysArg.arg1 = diskBuffer;
     sysArg.arg2 = (void *) ( (long) sectors);
-    sysArg.arg3 = (void *) ( (long) startTrack);
-    sysArg.arg4 = (void *) ( (long) startSector);
-    sysArg.arg5 = (void *) ( (long) units);
+    sysArg.arg3 = (void *) ( (long) track);
+    sysArg.arg4 = (void *) ( (long) first);
+    sysArg.arg5 = (void *) ( (long) unit);
 
     USLOSS_Syscall(&sysArg);
     *status = (long) sysArg.arg1;
@@ -69,46 +69,34 @@ int DiskSize(int unit, int *sector, int *track, int *disk) {
     return (long) sysArg.arg4;
 }
 
-
-int TermRead(int unit, int size, char *buffer) {
+int TermRead(char *buffer, int bufferSize, int unitID, int *numCharsRead) {
     systemArgs sysArg;
 
     CHECKMODE;
     sysArg.number = SYS_TERMREAD;
     sysArg.arg1 = (void *) buffer;
-    sysArg.arg2 = (void *) ( (long) size);
-    sysArg.arg3 = (void *) ( (long) unit);
+    sysArg.arg2 = (void *) ( (long) bufferSize);
+    sysArg.arg3 = (void *) ( (long) unitID);
 
     USLOSS_Syscall(&sysArg);
 
-    long success = (long) sysArg.arg4;
-    long s = (long) sysArg.arg2;
+    *numCharsRead = (long) sysArg.arg2;
 
-    if (success < 0) {
-        return success;
-    }
-
-    return s;
+    return (long) sysArg.arg4;
 }
 
-
-int TermWrite(int unit, int size, char *text) {
+int TermWrite(char *buffer, int bufferSize, int unitID, int *numCharsRead) {
     systemArgs sysArg;
 
     CHECKMODE;
     sysArg.number = SYS_TERMWRITE;
-    sysArg.arg1 = (void *) text;
-    sysArg.arg2 = (void *) ( (long) size);
-    sysArg.arg3 = (void *) ( (long) unit);
+    sysArg.arg1 = (void *) buffer;
+    sysArg.arg2 = (void *) ( (long) bufferSize);
+    sysArg.arg3 = (void *) ( (long) unitID);
 
     USLOSS_Syscall(&sysArg);
 
-    long success = (long) sysArg.arg4;
-    long s = (long) sysArg.arg2;
-
-    if (success < 0) {
-        return success;
-    }
-
-    return s;
+    *numCharsRead = (long) sysArg.arg2;
+    
+    return (long) sysArg.arg4;
 }

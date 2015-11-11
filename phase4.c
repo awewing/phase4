@@ -50,7 +50,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 1;
+ int debugflag4 = 0;
 
  int running; // the semaphore that waits for drivers to start
  process ProcTable[MAXPROC];
@@ -208,6 +208,10 @@ void start3(void) {
 }
 
 static int ClockDriver(char *arg) {
+    if (debugflag4) {
+        USLOSS_Console("process %d: ClockDriver started\n", getpid());
+    }
+
     int status;
 
     // Let the parent know we are running and enable interrupts.
@@ -227,6 +231,9 @@ static int ClockDriver(char *arg) {
          * whose time has come.
          */
         while (waitQ != NULL && waitQ->wakeUpTime < USLOSS_Clock()) {
+            // wake up the sleeper
+            semvReal(waitQ->sleepSem);
+
             // remove curr from Q and look at next element
             procPtr temp = waitQ->nextWakeUp;
             waitQ->nextWakeUp = NULL;
@@ -239,12 +246,16 @@ static int ClockDriver(char *arg) {
 }
 
 static int DiskDriver(char *arg) {
+    // unit passed as arg
+    int unit = atoi( (char *) arg);
+
+    if (debugflag4) {
+        USLOSS_Console("process %d: DiskDriver%d started\n", getpid(), unit);
+    }
+
     // Let the parent know we are running and enable interrupts. (should this be below init?)
     semvReal(running);
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
-
-    // unit passed as arg
-    int unit = atoi( (char *) arg);
 
     // initialize global variables
     topQ[unit] = NULL;
@@ -297,6 +308,10 @@ static int DiskDriver(char *arg) {
 static int TermDriver(char *arg) {
     int unit = atoi(arg);
     int status;
+
+    if (debugflag4) {
+        USLOSS_Console("process %d: TermDriver%d started\n", getpid(), unit);
+    }
 
     // Let the parent know we are running
     semvReal(running);
@@ -422,7 +437,7 @@ static int TermWriter(char *arg) {
         int pid = atoi((char *) pidC);
 
         // wake up the waiting process
-        semvReal(ProcTable[pid % 50].termSem);
+        semvReal(ProcTable[pid % MAXPROC].termSem);
     }
 
     return 0;
@@ -619,7 +634,6 @@ int sleepReal(int seconds) {
 
     // put the process to sleep by blocking until driver wakes it up
     sempReal(ProcTable[pid].sleepSem);
-
     return 0;
 }
 
@@ -771,7 +785,7 @@ int termWriteReal(int unit, int size, char *text) {
     }
 
     // block until termwriter is done
-    sempReal(ProcTable[getpid() % 50].termSem);
+    sempReal(ProcTable[getpid() % MAXPROC].termSem);
 
     return result;
 }

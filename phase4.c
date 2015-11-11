@@ -273,7 +273,7 @@ static int DiskDriver(char *arg) {
         topQ[unit] = topQ[unit]->nextReq;
 
         // Move head
-        diskSeek(unit, req.track);
+        diskSeek(unit, req->track);
 
         // execute series of actual requests to USLOSSS_DISK_DEV
         for (int i = 0; i < req->numSectors; i++) {
@@ -281,14 +281,14 @@ static int DiskDriver(char *arg) {
             singleRequest.opr = req->reqType;
             
             // sector changes depending on i
-            singleRequest.reg1 = (req->startSector + i) % 16;
+            singleRequest.reg1 = (void *) ((req->startSector + i) % 16);
 
             // address changes depending on which sector we are visiting.
             singleRequest.reg2 = &(req->buffer) + (512 * i);
         }
 
         // wake process waiting on the disk action 
-        semvReal(ProcTable[req.waitingPID].sleepSem);
+        semvReal(ProcTable[req->waitingPID].sleepSem);
     }
 
     return 0;
@@ -354,7 +354,7 @@ static int TermReader(char *arg) {
         MboxReceive(charReceiveBox[unit], receive, sizeof(int));
 
         // place the character in the line and inc pos
-        line[pos] = receive;
+        line[pos] = (char) receive;
         pos++;
         
         // check to see if its time to send the line
@@ -720,7 +720,7 @@ int diskSizeReal(int unit, int *sector, int *track, int *disk) {
 
 void diskSeek(int unit, int track) {
     if ( track >= numTracks[unit]) {
-        USLOSS_Halt();
+        USLOSS_Halt(0);
         return;
     }
 
@@ -728,7 +728,8 @@ void diskSeek(int unit, int track) {
     req.opr = USLOSS_DISK_SEEK;
     req.reg1 = track;
 
-    USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, req);
+    // TODO sorry alex, this line was broke so i comented it out 
+    //USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, req);
 }
 
 int termReadReal(int unit, int size, char *buffer) {

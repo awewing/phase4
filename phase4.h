@@ -15,7 +15,7 @@ struct procStruct {
 
 struct request {
 	int track;
-	int startSector;
+	long startSector;
 	int numSectors;
 	int waitingPID;
 	void * buffer;

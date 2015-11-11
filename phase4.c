@@ -200,7 +200,9 @@ void start3(void) {
         zap(diskpid[i]);
     }
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        zap(termpid[i][0]);
+        zap(termpid[i][0]); // zap the driver
+        zap(termpid[i][1]); // zap the reader
+        zap(termpid[i][2]); // zap the writer
     }
 
     // eventually, at the end:

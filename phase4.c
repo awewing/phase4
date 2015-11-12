@@ -106,8 +106,8 @@ void start3(void) {
 
     // create the terminal charReceive and charSend mailboxes
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        charReceiveBox[i] = MboxCreate(1, 1);
-        charSendBox[i]    = MboxCreate(1, 1);
+        charReceiveBox[i] = MboxCreate(1, MAXLINE);
+        charSendBox[i]    = MboxCreate(1, MAXLINE);
         lineReadBox[i]    = MboxCreate(10, MAXLINE);
         lineWriteBox[i]   = MboxCreate(10, MAXLINE);
         pidBox[i]         = MboxCreate(10, MAXLINE);
@@ -225,12 +225,33 @@ void start3(void) {
         }
     }
 
-    // term readers
-
     // TODO: more than one term flag? one for each loop
     terminateTerm = 0;
+/*
+    // close out the term files
+    FILE *file = fopen("term0.in", "a");
+    fprintf(file, "\x03");
+    fflush(file);
+    fclose(file);
+    file = fopen("term1.in", "a");
+    fprintf(file, "\x03");
+    fflush(file);
+    fclose(file);
+    file = fopen("term2.in", "a");
+    fprintf(file, "\x03");
+    fflush(file);
+    fclose(file);
+    file = fopen("term3.in", "a");
+    fprintf(file, "\x03");
+    fflush(file);
+    fclose(file);
+    if (debugflag4) {
+        USLOSS_Console("wrote end of text characters\n");
+    }
+*/
+    // term reader
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        MboxSend(charReceiveBox[i], 'c', sizeof(int));
+        MboxSend(charReceiveBox[i], "c", MAXLINE);
         join(stsp);
         if (debugflag4) {
             USLOSS_Console("closed term reader %d\n", i);
@@ -239,7 +260,7 @@ void start3(void) {
 
     // term writers
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        MboxSend(lineWriteBox[i], "c", sizeof(int));
+        MboxSend(lineWriteBox[i], "c", MAXLINE);
         join(stsp);
         if (debugflag4) {
             USLOSS_Console("closed term writer %d\n", i);
@@ -251,7 +272,7 @@ void start3(void) {
         zap(termpid[i][0]);
         join(stsp);
         if (debugflag4) {
-            USLOSS_Console("closed driver %d\n", i);
+            USLOSS_Console("closed term driver %d\n", i);
         }
     }
 
@@ -410,14 +431,14 @@ static int TermDriver(char *arg) {
         }
 
         // check for receive character
-        if (USLOSS_TERM_STAT_RECV(status) == USLOSS_DEV_BUSY) {
+        if (USLOSS_TERM_STAT_RECV(status) == USLOSS_DEV_BUSY && !terminateTerm) {
             char c = USLOSS_TERM_STAT_CHAR(status);
             // send message saying that a char needs to be received
             MboxSend(charReceiveBox[unit], &c, sizeof(int));
         }
 
         // check for send character
-        if (USLOSS_TERM_STAT_XMIT(status) == USLOSS_DEV_READY) {
+        if (USLOSS_TERM_STAT_XMIT(status) == USLOSS_DEV_READY && !terminateTerm) {
             char c = USLOSS_TERM_STAT_CHAR(status);
             // send message saying that a char needs to be sent
             MboxSend(charSendBox[unit], &c, sizeof(int));
@@ -440,10 +461,9 @@ static int TermReader(char *arg) {
         char receive[1]; // to hold the receive character
 
         // wait until there is a character to read in
-        MboxReceive(charReceiveBox[unit], receive, sizeof(int));
+        MboxReceive(charReceiveBox[unit], receive, MAXLINE);
 
         if (!terminateTerm) {
-            USLOSS_Console("term r %d\n", unit);
             break;
         }
 
@@ -454,7 +474,7 @@ static int TermReader(char *arg) {
         // check to see if its time to send the line
         if ((char) receive[0] == '\n' || pos == MAXLINE) {
             // send the line to the mailbox for reading lines
-            MboxCondSend(lineReadBox[unit], line, sizeof(line));
+            MboxCondSend(lineReadBox[unit], line, MAXLINE);
 
             // clean out line
             for (int i = 0; i < MAXLINE; i++) {
@@ -488,16 +508,15 @@ static int TermWriter(char *arg) {
         // wait until temWriteReal sends a line
         MboxReceive(lineWriteBox[unit], receive, MAXLINE);
 
-        if (terminateTerm) {
-            USLOSS_Console("term w %d\n", unit);
+        if (!terminateTerm) {
             break;
         }
 
         // iterate through the line
         for (int i = 0; i < strlen(receive); i++) {
             // get the character from term driver
-            char *c;
-            MboxReceive(charReceiveBox[unit], c, sizeof(int));
+            char c[1];
+            MboxReceive(charReceiveBox[unit], c, MAXLINE);
 
             // transmit the character
             long control = 0;
@@ -514,6 +533,8 @@ static int TermWriter(char *arg) {
                 USLOSS_Halt(0);
             }
         }
+
+        // TODO disable write interrupts
 
         // wait until termWriterReal send its pid
         char pidC[10];

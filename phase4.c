@@ -132,58 +132,58 @@ void start3(void) {
      * the stack size depending on the complexity of your
      * driver, and perhaps do something with the pid returned.
      */
-    // int diskpid[USLOSS_DISK_UNITS];
-    // char diskbuf[10];
-    // for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
-    //     // specify which disk unit this is
-    //     sprintf(diskbuf, "%d", i);
+    int diskpid[USLOSS_DISK_UNITS];
+    char diskbuf[10];
+    for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
+        // specify which disk unit this is
+        sprintf(diskbuf, "%d", i);
 
-    //     // create the disk driver for this unit
-    //     diskpid[i] = fork1(name, DiskDriver, diskbuf, USLOSS_MIN_STACK, 2);
-    //     if (diskpid[i] < 0) {
-    //         USLOSS_Console("start3(): Can't create disk driver %d\n", i);
-    //         USLOSS_Halt(1);
-    //     }
+        // create the disk driver for this unit
+        diskpid[i] = fork1(name, DiskDriver, diskbuf, USLOSS_MIN_STACK, 2);
+        if (diskpid[i] < 0) {
+            USLOSS_Console("start3(): Can't create disk driver %d\n", i);
+            USLOSS_Halt(1);
+        }
 
-    //     // wait for disk driver to start
-    //     sempReal(running);
-    // }
+        // wait for disk driver to start
+        sempReal(running);
+    }
 
-    // /*
-    //  * Create terminal device drivers.
-    //  */
-    // int termpid[USLOSS_TERM_UNITS][3];
-    // char termbuf[10];
-    // for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-    //     // specify which terminal unit this is
-    //     sprintf(termbuf, "%d", i);
+    /*
+     * Create terminal device drivers.
+     */
+    int termpid[USLOSS_TERM_UNITS][3];
+    char termbuf[10];
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        // specify which terminal unit this is
+        sprintf(termbuf, "%d", i);
 
-    //     // create the terminal driver for this unit
-    //     termpid[i][0] = fork1(name, TermDriver, termbuf, USLOSS_MIN_STACK, 2);
-    //     if (termpid[i][0] < 0) {
-    //         USLOSS_Console("start3(): Can't create term driver %d\n", i);
-    //         USLOSS_Halt(1);
-    //     }
+        // create the terminal driver for this unit
+        termpid[i][0] = fork1(name, TermDriver, termbuf, USLOSS_MIN_STACK, 2);
+        if (termpid[i][0] < 0) {
+            USLOSS_Console("start3(): Can't create term driver %d\n", i);
+            USLOSS_Halt(1);
+        }
 
-    //     // create terminal reader
-    //     termpid[i][1] = fork1(name, TermReader, termbuf, USLOSS_MIN_STACK, 2);
-    //     if (termpid[i][1] < 0) {
-    //         USLOSS_Console("start3(): Can't create term reader %d\n", i);
-    //         USLOSS_Halt(1);
-    //     }
+        // create terminal reader
+        termpid[i][1] = fork1(name, TermReader, termbuf, USLOSS_MIN_STACK, 2);
+        if (termpid[i][1] < 0) {
+            USLOSS_Console("start3(): Can't create term reader %d\n", i);
+            USLOSS_Halt(1);
+        }
 
-    //     // create terminal writer
-    //     termpid[i][2] = fork1(name, TermWriter, termbuf, USLOSS_MIN_STACK, 2);
-    //     if (termpid[i][2] < 0) {
-    //         USLOSS_Console("start3(): Can't create term writer %d\n", i);
-    //         USLOSS_Halt(1);
-    //     }
+       // create terminal writer
+       termpid[i][2] = fork1(name, TermWriter, termbuf, USLOSS_MIN_STACK, 2);
+       if (termpid[i][2] < 0) {
+            USLOSS_Console("start3(): Can't create term writer %d\n", i);
+            USLOSS_Halt(1);
+        }
         
-    //     // wait for all to start
-    //     sempReal(running);
-    //     sempReal(running);
-    //     sempReal(running);
-    // }
+        // wait for all to start
+        sempReal(running);
+        sempReal(running);
+        sempReal(running);
+    }
 
     /*
      * Create first user-level process and wait for it to finish.
@@ -205,30 +205,56 @@ void start3(void) {
     // wake disk drivers for closing
 
     // wake terminal drivers for closing
-
+    
     /*
      * Zap the device drivers
      */
+    // status's for joining
+    int sts = 0;
+    int *stsp = &sts;
+
+    // clock
     zap(clockPID);
-    // for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
-    //     zap(diskpid[i]);
-    // }
-    // for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-    //     zap(termpid[i][0]); // zap the driver
-    //     zap(termpid[i][1]); // zap the reader
-    //     zap(termpid[i][2]); // zap the writer
-    // }
+    join(stsp);
+    if (debugflag4) {
+        USLOSS_Console("closed clock\n");
+    }
 
-   // Join device drivers
-   int *sts = NULL;
-   int numDrivers = 1 /*+ USLOSS_DISK_UNITS + USLOSS_TERM_UNITS*/;
+    // disk
+    for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
+        semvReal(diskSem[i]);
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed disk %d\n", i);
+        }
+    }
 
-   for (int i =  0; i < numDrivers; i++) {
-       join(sts);
-       if (debugflag4) {
-           USLOSS_Console("start3(): joining on process: %d\n", status);
-       }
-   }
+    // term readers
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        MboxSend(charReceiveBox[i], 'c', sizeof(int));
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed term reader %d\n", i);
+        }
+    }
+
+    // term writers
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        MboxSend(lineWriteBox[i], "c", sizeof(int));
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed term writer %d\n", i);
+        }
+    }
+
+    // term drivers
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        zap(termpid[i][0]);
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed driver %d\n", i);
+        }
+    }
 
     // eventually, at the end:
     quit(0);    
@@ -304,7 +330,6 @@ static int DiskDriver(char *arg) {
         return 0;
     }
 
-
     // where do we put waitDevice and what about diskSem
 
     // Infinite loop until we are zap'd
@@ -312,6 +337,10 @@ static int DiskDriver(char *arg) {
         // block for interrupt
         sempReal(diskSem[unit]);
 
+        if (!terminateFlag) {
+USLOSS_Console("disk %d closed\n", unit);
+            break;
+        }
 
         // take request from Q
         reqPtr req = topQ[unit];
@@ -397,17 +426,22 @@ static int TermReader(char *arg) {
     
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char *receive = '\0'; // to hold the receive character
+        char receive[1]; // to hold the receive character
 
         // wait until there is a character to read in
         MboxReceive(charReceiveBox[unit], receive, sizeof(int));
 
+        if (!terminateFlag) {
+USLOSS_Console("term r %d\n", unit);
+            break;
+        }
+
         // place the character in the line and inc pos
-        line[pos] = (char) receive;
+        line[pos] = (char) receive[0];
         pos++;
         
         // check to see if its time to send the line
-        if ((char) receive == '\n' || pos == MAXLINE) {
+        if ((char) receive[0] == '\n' || pos == MAXLINE) {
             // send the line to the mailbox for reading lines
             MboxCondSend(lineReadBox[unit], line, sizeof(line));
 
@@ -432,7 +466,7 @@ static int TermWriter(char *arg) {
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char *receive = '\0'; // to hold the received line
+        char receive[MAXLINE]; // to hold the received line
 
         // turn on interrupts
         long cntr = 0;
@@ -442,6 +476,11 @@ static int TermWriter(char *arg) {
 
         // wait until temWriteReal sends a line
         MboxReceive(lineWriteBox[unit], receive, MAXLINE);
+
+        if (!terminateFlag) {
+USLOSS_Console("term w %d\n", unit);
+            break;
+        }
 
         // iterate through the line
         for (int i = 0; i < strlen(receive); i++) {

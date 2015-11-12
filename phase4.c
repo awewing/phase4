@@ -50,7 +50,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 0;
+ int debugflag4 = 1;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -70,7 +70,7 @@ reqPtr topQ[USLOSS_DISK_UNITS];
 reqPtr bottomQ[USLOSS_DISK_UNITS];
 int diskReq[USLOSS_DISK_UNITS];
 int diskArm[USLOSS_DISK_UNITS];
-long numTracks[USLOSS_DISK_UNITS];
+int numTracks[USLOSS_DISK_UNITS];
 /***********************************************/
 
 void start3(void) {
@@ -306,10 +306,6 @@ static int DiskDriver(char *arg) {
         USLOSS_Console("process %d: DiskDriver%d started\n", getpid(), unit);
     }
 
-    // Let the parent know we are running and enable interrupts. (should this be below init?)
-    semvReal(running);
-    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
-
     // initialize global variables
     topQ[unit] = NULL;
     bottomQ[unit] = NULL;
@@ -318,18 +314,33 @@ static int DiskDriver(char *arg) {
     diskArm[unit] = 0;
 
     // create request to get numTracks
+    int *tracks;
+
     USLOSS_DeviceRequest req;
     req.opr = USLOSS_DISK_TRACKS;
-    req.reg1 = &numTracks[unit];
+    req.reg1 = &tracks;
+
     USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &req);
+    if (debugflag4) {
+        USLOSS_Console("DiskDriver(): numtracks[%d] = %d\n", unit, tracks);
+    }
 
     int status;
     int result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+    
     if (result != 0) {
+        USLOSS_Console("DiskDriver(): waitDevice returned a non-zero value\n");
         return 0;
     }
 
-    // where do we put waitDevice and what about diskSem
+    numTracks[unit] = tracks;
+    if (debugflag4) {
+        USLOSS_Console("DiskDriver(): numTracks is %d, and tracks is %d\n", numTracks[unit], tracks);
+    }
+
+    // Let the parent know we are running and enable interrupts. (should this be below init?)
+    semvReal(running);
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
     while (!isZapped() && terminateDisk) {
@@ -337,7 +348,8 @@ static int DiskDriver(char *arg) {
         sempReal(diskSem[unit]);
 
         if (!terminateDisk) {
-            USLOSS_Console("disk %d closed\n", unit);
+            if (debugflag4)
+                USLOSS_Console("disk %d breaking loop\n", unit);
             break;
         }
 
@@ -573,8 +585,8 @@ static void diskWrite(systemArgs *args) {
     int sectors  = (long) args->arg2;
     void *buffer = args->arg1;
 
-    // do the read
-    long status = diskReadReal(unit, track, first, sectors, buffer);
+    // do the write
+    long status = diskWriteReal(unit, track, first, sectors, buffer);
 
     // check for bad input
     if (status == -1) {
@@ -603,6 +615,7 @@ static void diskSize(systemArgs *args) {
 
     // check for bad input
     if (status == -1) {
+        USLOSS_Console("diskSize(): Bad Status in diskSizeReal call\n");
         args->arg4 = (void *) -1L;
         return;
     }
@@ -611,6 +624,12 @@ static void diskSize(systemArgs *args) {
     long sectorL = sector;
     long trackL  = track;
     long diskL   = disk;
+
+    if (debugflag4) {
+        USLOSS_Console("diskSize(): sector size: %d, %d\n", sector, sectorL);
+        USLOSS_Console("diskSize(): num sectors: %d, %d\n", track, trackL);
+        USLOSS_Console("diskSize(): num tracks: %d, %d\n", disk, diskL);
+    }
 
     // set the args
     args->arg1 = (void *) sectorL;
@@ -728,9 +747,15 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
     req.nextReq = NULL;
 
     // add request to Q
+    if (debugflag4) {
+        USLOSS_Console("diskReadReal(): adding to Q\n");
+    }
     diskRequest(req, unit);
 
     // block calling process
+    if (debugflag4) {
+        USLOSS_Console("diskReadReal(): blocking calling process\n");
+    }
     sempReal(ProcTable[getpid() % MAXPROC].procDiskSem);
 
     return 0;
@@ -752,9 +777,15 @@ int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
     req.nextReq = NULL;
 
     // add request to Q
+    if (debugflag4) {
+        USLOSS_Console("diskWriteReal(): adding to Q\n");
+    }
     diskRequest(req, unit);
 
     // block calling process
+    if (debugflag4) {
+        USLOSS_Console("diskWriteReal(): blocking calling process\n");
+    }
     sempReal(ProcTable[getpid() % MAXPROC].procDiskSem);
     
     return 0;
@@ -801,9 +832,14 @@ int diskSizeReal(int unit, int *sector, int *track, int *disk) {
     }
 
     // unit valid so set the variables
-    sector = (int * )USLOSS_DISK_SECTOR_SIZE;
-    track = (int *) USLOSS_DISK_TRACK_SIZE;
-    disk = (int *) numTracks[unit];
+    *sector = USLOSS_DISK_SECTOR_SIZE;
+    *track = USLOSS_DISK_TRACK_SIZE;
+    *disk = numTracks[unit];
+    if (debugflag4) {
+        USLOSS_Console("diskSizeReal(): sector size: %d, %d\n", USLOSS_DISK_SECTOR_SIZE, sector);
+        USLOSS_Console("diskSizeReal(): num sectors: %d, %d\n", USLOSS_DISK_TRACK_SIZE, track);
+        USLOSS_Console("diskSizeReal(): num tracks: %d, %d\n", numTracks[unit], disk);
+    }
 
     return 0;
 }
@@ -819,6 +855,14 @@ void diskSeek(int unit, int track) {
     req.reg1 = track;
 
     USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &req);
+    int status;
+    int result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+    if (debugflag4) {
+        USLOSS_Console("diskSeek(): done with waitDevice, status = %d\n", status);
+    }
+    if (result != 0) {
+        USLOSS_Console("diskSeek(): waitDevice returned non-zero value\n");
+    }
 }
 
 int termReadReal(int unit, int size, char *buffer) {

@@ -53,6 +53,7 @@
  int debugflag4 = 0;
  int terminateClock;
  int terminateDisk;
+ int terminateTerm;
 
  int running; // the semaphore that waits for drivers to start
  process ProcTable[MAXPROC];
@@ -84,6 +85,7 @@ void start3(void) {
     // init terminateFlag
     terminateClock = 1;
     terminateDisk = 1;
+    terminateTerm = 1;
 
     // init sysvec
     systemCallVec[SYS_SLEEP]     = sleep;
@@ -197,16 +199,61 @@ void start3(void) {
     spawnReal("start4", start4, NULL, 4 * USLOSS_MIN_STACK, 3);
     waitReal(&status);
 
-    // Cleanup Clock driver
+    /*
+     * Zap the device drivers
+     */
+    // status's for joining
+    int sts = 0;
+    int *stsp = &sts;
+
+    // clock
     terminateClock = 0;
     zap(clockPID);
-    int *s;
-    join(&s);
+    join(stsp);
+    if (debugflag4) {
+        USLOSS_Console("closed clock\n");
+    }
 
-    // Cleanup Disk driver
+    // disk
     terminateDisk = 0;
+    for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
+        semvReal(diskSem[i]);
+        zap(diskpid[i]);
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed disk %d\n", i);
+        }
+    }
 
-    // Cleanup Term driver
+    // term readers
+
+    // TODO: more than one term flag? one for each loop
+    terminateTerm = 0;
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        MboxSend(charReceiveBox[i], 'c', sizeof(int));
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed term reader %d\n", i);
+        }
+    }
+
+    // term writers
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        MboxSend(lineWriteBox[i], "c", sizeof(int));
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed term writer %d\n", i);
+        }
+    }
+
+    // term drivers
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        zap(termpid[i][0]);
+        join(stsp);
+        if (debugflag4) {
+            USLOSS_Console("closed driver %d\n", i);
+        }
+    }
 
     // eventually, at the end:
     quit(0);    
@@ -282,13 +329,17 @@ static int DiskDriver(char *arg) {
         return 0;
     }
 
-
     // where do we put waitDevice and what about diskSem
 
     // Infinite loop until we are zap'd
     while (!isZapped() && terminateDisk) {
         // block for interrupt
         sempReal(diskSem[unit]);
+
+        if (!terminateDisk) {
+            USLOSS_Console("disk %d closed\n", unit);
+            break;
+        }
 
         // take request from Q
         reqPtr req = topQ[unit];
@@ -374,17 +425,22 @@ static int TermReader(char *arg) {
     
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char *receive = '\0'; // to hold the receive character
+        char receive[1]; // to hold the receive character
 
         // wait until there is a character to read in
         MboxReceive(charReceiveBox[unit], receive, sizeof(int));
 
+        if (!terminateTerm) {
+            USLOSS_Console("term r %d\n", unit);
+            break;
+        }
+
         // place the character in the line and inc pos
-        line[pos] = (char) receive;
+        line[pos] = (char) receive[0];
         pos++;
         
         // check to see if its time to send the line
-        if ((char) receive == '\n' || pos == MAXLINE) {
+        if ((char) receive[0] == '\n' || pos == MAXLINE) {
             // send the line to the mailbox for reading lines
             MboxCondSend(lineReadBox[unit], line, sizeof(line));
 
@@ -409,7 +465,7 @@ static int TermWriter(char *arg) {
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char *receive = '\0'; // to hold the received line
+        char receive[MAXLINE]; // to hold the received line
 
         // turn on interrupts
         long cntr = 0;
@@ -419,6 +475,11 @@ static int TermWriter(char *arg) {
 
         // wait until temWriteReal sends a line
         MboxReceive(lineWriteBox[unit], receive, MAXLINE);
+
+        if (terminateTerm) {
+            USLOSS_Console("term w %d\n", unit);
+            break;
+        }
 
         // iterate through the line
         for (int i = 0; i < strlen(receive); i++) {

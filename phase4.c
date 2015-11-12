@@ -51,6 +51,7 @@
  * Globals
  ***********************************************/
  int debugflag4 = 0;
+ int terminateFlag;
 
  int running; // the semaphore that waits for drivers to start
  process ProcTable[MAXPROC];
@@ -79,6 +80,9 @@ void start3(void) {
      */
     check_kernel_mode("start3");
 
+    // init terminateFlag
+    terminateFlag = 1;
+
     // init sysvec
     systemCallVec[SYS_SLEEP]     = sleep;
     systemCallVec[SYS_DISKREAD]  = diskRead;
@@ -92,6 +96,7 @@ void start3(void) {
         ProcTable[i].wakeUpTime = -1;
         ProcTable[i].sleepSem = semcreateReal(0);
         ProcTable[i].termSem = semcreateReal(0);
+        ProcTable[i].procDiskSem = semcreateReal(0);
         ProcTable[i].nextWakeUp = NULL;
     }
 
@@ -190,7 +195,16 @@ void start3(void) {
     spawnReal("start4", start4, NULL, 4 * USLOSS_MIN_STACK, 3);
     waitReal(&status);
 
-    // TODO terminate the terminals somehow mysteriouslly?????
+    // Set up termination conditions
+    terminateFlag = 0;
+    
+// TODO:
+
+    // wake clock driver for closing
+
+    // wake disk drivers for closing
+
+    // wake terminal drivers for closing
 
     /*
      * Zap the device drivers
@@ -204,6 +218,17 @@ void start3(void) {
         zap(termpid[i][1]); // zap the reader
         zap(termpid[i][2]); // zap the writer
     }
+
+    // Join device drivers
+//    int *sts = NULL;
+//    int numDrivers = 1 + USLOSS_DISK_UNITS + USLOSS_TERM_UNITS;
+
+//    for (int i =  0; i < numDrivers; i++) {
+//        join(sts);
+//        if (debugflag4) {
+//            USLOSS_Console("start3(): joining on process: %d\n", status);
+//        }
+//    }
 
     // eventually, at the end:
     quit(0);    
@@ -222,9 +247,10 @@ static int ClockDriver(char *arg) {
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
+
         // wait to run, if something is wrong quit
         int result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
-	if (result != 0) {
+	    if (result != 0) {
             return 0;
         }
 
@@ -272,14 +298,15 @@ static int DiskDriver(char *arg) {
     req.reg1 = &numTracks[unit];
     USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &req);
 
-    // wait device idk why
     int status;
-    waitDevice(USLOSS_DISK_DEV, unit, &status);
 
     // Infinite loop until we are zap'd
-    while (!isZapped()) {
-        // block on disk sem
-        sempReal(diskSem[unit]);
+    while (!isZapped() && terminateFlag) {
+        // block for interrupt
+        int result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+        if (result != 0) {
+            return 0;
+        }
 
         // take request from Q
         reqPtr req = topQ[unit];
@@ -301,7 +328,7 @@ static int DiskDriver(char *arg) {
         }
 
         // wake process waiting on the disk action 
-        semvReal(ProcTable[req->waitingPID].sleepSem);
+        semvReal(ProcTable[req->waitingPID].procDiskSem);
     }
 
     return 0;
@@ -658,7 +685,7 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
     diskRequest(req, unit);
 
     // block calling process
-    sempReal(ProcTable[getpid() % MAXPROC].sleepSem);
+    sempReal(ProcTable[getpid() % MAXPROC].procDiskSem);
 
     return 0;
 }
@@ -682,7 +709,7 @@ int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
     diskRequest(req, unit);
 
     // block calling process
-    sempReal(ProcTable[getpid() % MAXPROC].sleepSem);
+    sempReal(ProcTable[getpid() % MAXPROC].procDiskSem);
     
     return 0;
 }
@@ -712,8 +739,6 @@ void diskRequest(request req, int unit) {
     }
     prev->nextReq = &req;
     req.nextReq = curr;
-
-
 }
 
 int diskSizeReal(int unit, int *sector, int *track, int *disk) {
@@ -744,8 +769,7 @@ void diskSeek(int unit, int track) {
     req.opr = USLOSS_DISK_SEEK;
     req.reg1 = track;
 
-    // TODO sorry alex, this line was broke so i comented it out 
-    //USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, req);
+    USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &req);
 }
 
 int termReadReal(int unit, int size, char *buffer) {

@@ -10,6 +10,7 @@ struct procStruct {
     int     wakeUpTime;
     int     sleepSem;
     int     termSem;
+    int     procDiskSem;
     procPtr nextWakeUp;	// points to next process in the queue of processes to be woken up.
 };
 

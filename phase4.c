@@ -370,8 +370,18 @@ static int DiskDriver(char *arg) {
 
     // Infinite loop until we are zap'd
     while (!isZapped() && terminateDisk) {
+        if (debugflag4) {
+            USLOSS_Console("diskDriver(%d): inside while loop\n", unit);
+        }
+
         // block for interrupt
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: blocking on diskSem\n");
+        }
         sempReal(diskSem[unit]);
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: woke up from diskSem\n");
+        }
 
         if (!terminateDisk) {
             if (debugflag4)
@@ -380,13 +390,28 @@ static int DiskDriver(char *arg) {
         }
 
         // take request from Q
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: taking request from Q\n");
+            if (topQ[unit] == NULL) {
+                USLOSS_Console("\ttopQ[%d] is null\n", unit);
+            }
+        }
         reqPtr req = topQ[unit];
-        topQ[unit] = topQ[unit]->nextReq;
+        if (topQ[unit]->nextReq == NULL)
+            topQ[unit] = NULL;
+        else
+            topQ[unit] = topQ[unit]->nextReq;
 
         // Move head
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: moving disk head to track \n");
+        }
         diskSeek(unit, req->track);
 
         // execute series of actual requests to USLOSSS_DISK_DEV
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: request for loop begin \n");
+        }
         for (int i = 0; i < req->numSectors; i++) {
             USLOSS_DeviceRequest singleRequest;
             singleRequest.opr = req->reqType;
@@ -397,8 +422,14 @@ static int DiskDriver(char *arg) {
             // address changes depending on which sector we are visiting.
             singleRequest.reg2 = &(req->buffer) + (512 * i);
         }
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: request for loop end\n");
+        }
 
         // wake process waiting on the disk action 
+        if (debugflag4) {
+            USLOSS_Console("diskDriver(): waking up waiting process\n");
+        }
         semvReal(ProcTable[req->waitingPID].procDiskSem);
     }
 
@@ -858,31 +889,73 @@ int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
 
 void diskRequest(request req, int unit) {
     // find q to insert into
-    reqPtr Q;
+    if (debugflag4) {
+        USLOSS_Console("diskReques(%d)\n", unit);
+    }
+
+    // insert in topQ
     if (req.track > diskArm[unit]) {
-        Q = topQ[unit];
+        if (debugflag4) {
+            USLOSS_Console("diskRequest: inserting in topQ[%d]\n", unit);
+        }
+
+        //if Q is empty
+        if (topQ[unit] == NULL) {
+            topQ[unit] = &(req);
+            if (debugflag4) {
+                USLOSS_Console("diskRequest: inserting in empty Q\n");
+            }
+        }
+
+        // if Q is not empty
+        else {
+            reqPtr curr = topQ[unit];
+            reqPtr prev = NULL;
+            while (curr != NULL && curr->track < req.track) {
+                prev = curr;
+                curr = curr->nextReq;
+            }
+            if (debugflag4) {
+                USLOSS_Console("diskRequest: inserting in non-empty Q\n");
+            }
+            prev->nextReq = &req;
+            req.nextReq = curr;
+        }
     }
+
     else {
-        Q = bottomQ[unit];
-    }
+        if (debugflag4) {
+            USLOSS_Console("diskRequest: inserting in botQ[%d]\n", unit);
+        }
 
-    reqPtr curr = Q;
-    reqPtr prev = NULL;
+        //if Q is empty
+        if (bottomQ[unit] == NULL) {
+            bottomQ[unit] = &(req);
+            if (debugflag4) {
+                USLOSS_Console("diskRequest: inserting in empty Q\n");
+            }
+        }
 
-    // case 1, q is empty
-    if (curr == NULL) {
-        Q = &(req);
-        return;
+        // if Q is not empty
+        else {
+            reqPtr curr = bottomQ[unit];
+            reqPtr prev = NULL;
+            while (curr != NULL && curr->track < req.track) {
+                prev = curr;
+                curr = curr->nextReq;
+            }
+            if (debugflag4) {
+                USLOSS_Console("diskRequest: inserting in non-empty Q\n");
+            }
+            prev->nextReq = &req;
+            req.nextReq = curr;
+        }
     }
-
-    while (curr != NULL && curr->track < req.track) {
-        prev = curr;
-        curr = curr->nextReq;
-    }
-    prev->nextReq = &req;
-    req.nextReq = curr;
 
     // wake up disk
+    if (debugflag4) {
+        USLOSS_Console("diskRequest: waking up disk driver\n");
+    }
     semvReal(diskSem[unit]);
 }
 

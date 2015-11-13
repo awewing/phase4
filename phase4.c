@@ -578,11 +578,11 @@ static int TermReader(char *arg) {
         if (!terminateTerm) {
             break;
         }
-USLOSS_Console("TermReader%d: %s %d\n", unit, line, strlen(line));
+//USLOSS_Console("TermReader%d: %s %d\n", unit, line, strlen(line));
         // place the character in the line and inc pos
         line[pos] = receive;
         ++pos;
-USLOSS_Console("TermReader%d: %s %d\n", unit, line, strlen(line));
+//USLOSS_Console("TermReader%d: %s %d\n", unit, line, strlen(line));
 
         // check to see if its time to send the line
         if (receive == '\n' || pos == MAXLINE) {

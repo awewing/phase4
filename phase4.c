@@ -43,6 +43,7 @@
  int termWriteReal(int unit, int size, char *text);
 
  void diskRequest(request req, int unit);
+ void diskRequestExec(reqPtr req, int unit);
 
  void check_kernel_mode(char* name);
  void setUserMode();
@@ -51,7 +52,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 1;
+ int debugflag4 = 0;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -387,7 +388,7 @@ static int DiskDriver(char *arg) {
             USLOSS_Console("diskDriver: woke up from diskSem\n");
         }
 
-        if (!terminateDisk) {
+        if (terminateDisk == 0) {
             if (debugflag4)
                 USLOSS_Console("disk %d breaking loop\n", unit);
             break;
@@ -412,16 +413,34 @@ static int DiskDriver(char *arg) {
         else
             topQ[unit] = topQ[unit]->nextReq;
 
-        // Move head
         if (debugflag4) {
-            USLOSS_Console("diskDriver: moving disk head to track %d\n", req->track);
+            USLOSS_Console("DiskDriver(): calling diskRequestExec()\n");
+        }
+        diskRequestExec(req, unit);
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: returned from diskRequestExec with %s\n", req->buffer);
+            USLOSS_Console("diskDriver: semvReal on process %d", req->waitingPID);
+        }
+
+        // wake process waiting on the disk action 
+        semvReal(ProcTable[req->waitingPID].procDiskSem);
+    }
+
+    return 0;
+}
+
+void diskRequestExec(reqPtr req, int unit) {
+        if (debugflag4) {
+            USLOSS_Console("diskRequests: moving disk head to track %d\n", req->track);
         }
         diskSeek(unit, req->track);
 
         // execute series of actual requests to USLOSSS_DISK_DEV
         if (debugflag4) {
-            USLOSS_Console("diskDriver: request for loop begin \n");
+            USLOSS_Console("diskRequests: request for loop begin \n");
         }
+
+
         for (int i = 0; i < req->numSectors; i++) {
             USLOSS_DeviceRequest singleRequest;
             singleRequest.opr = req->reqType;
@@ -429,44 +448,32 @@ static int DiskDriver(char *arg) {
             // TODO: change track when i >= 16
 
             // sector changes depending on i
-            singleRequest.reg1 = (void *) ((req->startSector + i) % 16);
+            singleRequest.reg1 = (void *) req->startSector;
 
             // address changes depending on which sector we are visiting.
-            singleRequest.reg2 = &req->buffer;
+            singleRequest.reg2 = req->buffer;
 
             // set type
             singleRequest.opr = req->reqType;
 
             // dev output and waitdev
             if (debugflag4) {
-                USLOSS_Console("diskDriver(): sending devOut the following request\n");
+                USLOSS_Console("DiskRequest(): sending devOut the following request\n");
                 USLOSS_Console("\treg1 has sector:%d\n", singleRequest.reg1);
-                USLOSS_Console("\treg2 has buffer\n");
+                USLOSS_Console("\treg2 has buffer: %s\n", singleRequest.reg2);
                 USLOSS_Console("\topr has requesttype\n");
             }
             USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &singleRequest);
+            int status;
             int result = waitDevice(USLOSS_DISK_DEV, unit, &status);
             if (result != 0 && debugflag4) {
-                USLOSS_Console("diskDriver(): waitDevice for singleRequest returned non-zero value\n");
+                USLOSS_Console("DiskRequests(): waitDevice for singleRequest returned non-zero value\n");
             }
 
             if (debugflag4) {
-                USLOSS_Console("diskDriver(): singleRequest buffer contains: %d\n", req->buffer);
+                USLOSS_Console("diskDriver(): singleRequest buffer contains: %s\n", req->buffer);
             }
         }
-
-        if (debugflag4) {
-            USLOSS_Console("diskDriver: request for loop end\n");
-        }
-
-        // wake process waiting on the disk action 
-        if (debugflag4) {
-            USLOSS_Console("diskDriver(): waking up waiting process\n");
-        }
-        semvReal(ProcTable[req->waitingPID].procDiskSem);
-    }
-
-    return 0;
 }
 
 static int TermDriver(char *arg) {
@@ -692,8 +699,16 @@ static void diskRead(systemArgs *args) {
     int sectors  = (long) args->arg2;
     void *buffer = args->arg1;
 
+    if (debugflag4) {
+        USLOSS_Console("diskRead(): calling diskReadReal\n");
+    }
+
     // do the read
     long status = diskReadReal(unit, track, first, sectors, buffer);
+
+    if (debugflag4) {
+        USLOSS_Console("-------------diskRead(): returning from diskReadReal\n");
+    }
 
     // check for bad input
     if (status == -1) {
@@ -704,6 +719,11 @@ static void diskRead(systemArgs *args) {
     // set the args
     args->arg1 = (void *) status;
     args->arg4 = (void *) 0L;
+
+    if(debugflag4){
+        USLOSS_Console("diskRead(): got the string %s\n", buffer);
+        USLOSS_Console("\tand is returning %s\n", args->arg1);
+    }
 
     setUserMode();
 }
@@ -890,7 +910,7 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
     req.waitingPID = getpid();
     req.buffer = &buffer;
     req.reqType = USLOSS_DISK_READ;
-    req.nextReq = NULL;
+    req.nextReq = NULL; 
 
     // add request to Q
     if (debugflag4) {
@@ -904,12 +924,17 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
     }
     sempReal(ProcTable[getpid() % MAXPROC].procDiskSem);
 
+    if (debugflag4) {
+        USLOSS_Console("diskReadReal(): got the string: %s\n", buffer);
+        USLOSS_Console("diskReadReal(): req buffer: %s\n", req.buffer);
+    }
     return 0;
 }
 
 int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
     if (debugflag4) {
         USLOSS_Console("process %d: diskWriteReal\n", getpid());
+        USLOSS_Console("\tstring write is %s\n", buffer);
     }
 
     check_kernel_mode("diskWriteReal");
@@ -920,7 +945,7 @@ int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
     req.startSector = first;
     req.numSectors = sectors;
     req.waitingPID = getpid();
-    req.buffer = &buffer;
+    req.buffer = buffer;
     req.reqType = USLOSS_DISK_WRITE;
     req.nextReq = NULL;
 

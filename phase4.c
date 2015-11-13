@@ -51,7 +51,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 0;
+ int debugflag4 = 1;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -180,6 +180,10 @@ void start3(void) {
             USLOSS_Halt(1);
         }
 
+        long c = 0;
+        c = USLOSS_TERM_CTRL_RECV_INT(c);
+        int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, i, (void *) c);
+
         sprintf(name, "TermWriter%d", i);
         // create terminal writer
         termpid[i][2] = fork1(name, TermWriter, termbuf, USLOSS_MIN_STACK, 2);
@@ -256,7 +260,7 @@ void start3(void) {
 
     // term reader
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        MboxSend(charReceiveBox[i], "c", MAXLINE);
+        MboxSend(charReceiveBox[i], "c", sizeof(char[MAXLINE]));
         join(stsp);
         if (debugflag4) {
             USLOSS_Console("closed term reader %d\n", i);
@@ -265,7 +269,7 @@ void start3(void) {
 
     // term writers
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        MboxSend(lineWriteBox[i], "c", MAXLINE);
+        MboxSend(lineWriteBox[i], "c", sizeof(char[MAXLINE]));
         join(stsp);
         if (debugflag4) {
             USLOSS_Console("closed term writer %d\n", i);
@@ -274,7 +278,7 @@ void start3(void) {
 
     // term drivers
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        zap(termpid[i][0]);
+//        zap(termpid[i][0]);
         join(stsp);
         if (debugflag4) {
             USLOSS_Console("closed term driver %d\n", i);
@@ -477,55 +481,62 @@ static int TermDriver(char *arg) {
     semvReal(running);
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
-    // turn on read interrupts
-    long control = 0;
-    control = USLOSS_TERM_CTRL_RECV_INT(control);
-    int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
-    if (res != USLOSS_DEV_OK) {
-        if (debugflag4) {
-            USLOSS_Console("process %d: TermDriver quit unexpectadly. Res: %d\n", getpid(), res);
-        }
-        USLOSS_Halt(0);
-    }
-
     // Infinite loop until we are zap'd
     while (!isZapped()) {
         // wait to run, if something is wrong quit
-        int result = waitDevice(USLOSS_TERM_DEV, unit, &status);
+        int result = waitDevice(USLOSS_TERM_INT, unit, &status);
         if (result != 0) {
             quit(0);
         }
 
+        if (!terminateTerm) {
+            break;
+        }
+
         // check for receive character
-        if (USLOSS_TERM_STAT_RECV(status) == USLOSS_DEV_BUSY && !terminateTerm) {
-            char c = USLOSS_TERM_STAT_CHAR(status);
+        int i = USLOSS_TERM_STAT_RECV(status);
+        if (i == USLOSS_DEV_BUSY) {
+            int ch = USLOSS_TERM_STAT_CHAR(status);
 
             if (debugflag4) {
-                USLOSS_Console("TermDriver%d: reading\n", unit);
+                USLOSS_Console("TermDriver%d: reading '%c'\n", unit, ch);
             }
 
             // send message saying that a char needs to be received
-            int r = MboxSend(charReceiveBox[unit], &c, sizeof(int));
+            int r = MboxSend(charReceiveBox[unit], &ch, sizeof(int));
 
             if (debugflag4 && r < 0) {
                 USLOSS_Console("TermDriver%d: failed to send for reading\n", unit);
             }
         }
+        else if (i == USLOSS_DEV_ERROR) {
+           if (debugflag4) {
+                USLOSS_Console("TermDriver%d: DEV_ERROR\n", unit);
+            }
+            USLOSS_Halt(0);
+        }
 
         // check for send character
-        if (USLOSS_TERM_STAT_XMIT(status) == USLOSS_DEV_READY && !terminateTerm) {
-            char c = USLOSS_TERM_STAT_CHAR(status);
+        int o = USLOSS_TERM_STAT_XMIT(status);
+        if (o == USLOSS_DEV_READY) {
+            int ch = USLOSS_TERM_STAT_CHAR(status);
 
             if (debugflag4) {
-                USLOSS_Console("TermDriver%d: writing\n", unit);
+                USLOSS_Console("TermDriver%d: writing '%c'\n", unit, ch);
             }
 
             // send message saying that a char needs to be sent
-            int r = MboxSend(charSendBox[unit], &c, sizeof(int));
+//            int r = MboxSend(charSendBox[unit], &ch, sizeof(int));
 
-            if (debugflag4 && r < 0) {
-                USLOSS_Console("TermDriver%d: failed to send for reading\n", unit);
+//            if (debugflag4 && r < 0) {
+//                USLOSS_Console("TermDriver%d: failed to send for reading\n", unit);
+//            }
+        }
+        else if (o == USLOSS_DEV_ERROR) {
+           if (debugflag4) {
+                USLOSS_Console("TermDriver%d: DEV_ERROR\n", unit);
             }
+            USLOSS_Halt(0);
         }
     }
 
@@ -536,6 +547,7 @@ static int TermReader(char *arg) {
     int unit = atoi(arg);
     int pos = 0;  // position in the line to write a character
     char line[MAXLINE];
+    line[0] = '\0';
 
     // Let the parent know we are running and enable interrupts.
     semvReal(running);
@@ -543,27 +555,32 @@ static int TermReader(char *arg) {
  
     // Infinite loop until we are zap'd
     while (!isZapped()) {
-        char receive[1]; // to hold the receive character
+        long control = 0;
+        control = USLOSS_TERM_CTRL_RECV_INT(control);
+        int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) control);
+
+        char receive; // to hold the receive character
 
         // wait until there is a character to read in
-        MboxReceive(charReceiveBox[unit], receive, MAXLINE);
+        MboxReceive(charReceiveBox[unit], &receive, sizeof(char[MAXLINE]));
 
         if (debugflag4) {
-            USLOSS_Console("TermReader%d: awake with %c\n", unit, receive[0]);
+            USLOSS_Console("TermReader%d: awake with %c, %d\n", unit, receive);
         }
 
         if (!terminateTerm) {
             break;
         }
-
+USLOSS_Console("TermReader%d: %s %d\n", unit, line, strlen(line));
         // place the character in the line and inc pos
-        line[pos] = (char) receive[0];
-        pos++;
-        
+        line[pos] = receive;
+        ++pos;
+USLOSS_Console("TermReader%d: %s %d\n", unit, line, strlen(line));
+
         // check to see if its time to send the line
-        if ((char) receive[0] == '\n' || pos == MAXLINE) {
-            // send the line to the mailbox for reading lines
-            MboxCondSend(lineReadBox[unit], line, MAXLINE);
+        if (receive == '\n' || pos == MAXLINE) {
+           // send the line to the mailbox for reading lines
+            MboxCondSend(lineReadBox[unit], line, sizeof(char[MAXLINE]));
 
             // clean out line
             for (int i = 0; i < MAXLINE; i++) {
@@ -600,7 +617,7 @@ static int TermWriter(char *arg) {
         }
 
         // wait until temWriteReal sends a line
-        MboxReceive(lineWriteBox[unit], receive, MAXLINE);
+        MboxReceive(lineWriteBox[unit], receive, sizeof(char[MAXLINE]));
 
         if (!terminateTerm) {
             break;
@@ -610,7 +627,7 @@ static int TermWriter(char *arg) {
         for (int i = 0; i < strlen(receive); i++) {
             // get the character from term driver
             char c[1];
-            MboxReceive(charSendBox[unit], c, MAXLINE);
+            MboxReceive(charSendBox[unit], c, sizeof(char[MAXLINE]));
 
             // transmit the character
             long control = 0;
@@ -631,7 +648,7 @@ static int TermWriter(char *arg) {
 
         // wait until termWriterReal send its pid
         char pidC[10];
-        MboxReceive(pidBox[unit], pidC, sizeof(int));
+        MboxReceive(pidBox[unit], pidC, sizeof(char[10]));
         int pid = atoi((char *) pidC);
 
         // wake up the waiting process
@@ -1042,7 +1059,7 @@ void diskSeek(int unit, int track) {
 
 int termReadReal(int unit, int size, char *buffer) {
     if (debugflag4) {
-        USLOSS_Console("process %d: termReadReal\n", getpid());
+        USLOSS_Console("process %d: termReadReal for unit: %d\n", getpid(), unit);
     }
 
     check_kernel_mode("termReadReal");
@@ -1054,11 +1071,13 @@ int termReadReal(int unit, int size, char *buffer) {
 
     char in[MAXLINE];
 
+
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
         long control = 0;
         control = USLOSS_TERM_CTRL_RECV_INT(control);
         int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, i, (void *) control);
     }
+
 
     // check for a line to read
     int result = MboxReceive(lineReadBox[unit], in, size);
@@ -1075,7 +1094,7 @@ int termReadReal(int unit, int size, char *buffer) {
 
 int termWriteReal(int unit, int size, char *text) {
     if (debugflag4) {
-        USLOSS_Console("process %d: termWriteReal\n", getpid());
+        USLOSS_Console("process %d: termWriteReal for unit: %d\n", getpid(), unit);
     }
 
     check_kernel_mode("termWriteReal");
@@ -1088,7 +1107,7 @@ int termWriteReal(int unit, int size, char *text) {
     // send its pid
     char pidC[10];
     sprintf(pidC, "%d", getpid());
-    MboxSend(pidBox[unit], pidC, sizeof(int));
+    MboxSend(pidBox[unit], pidC, sizeof(char[10]));
 
     // send its text
     int result = MboxSend(lineWriteBox[unit], text, size);

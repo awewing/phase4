@@ -397,6 +397,12 @@ static int DiskDriver(char *arg) {
             }
         }
         reqPtr req = topQ[unit];
+        if (debugflag4) {
+            USLOSS_Console("diskDriver: request on track %d reading from sector %d for %d sectors\n", 
+                req->track, req->startSector, req->numSectors);
+        }
+
+        // remove req from Q
         if (topQ[unit]->nextReq == NULL)
             topQ[unit] = NULL;
         else
@@ -404,7 +410,7 @@ static int DiskDriver(char *arg) {
 
         // Move head
         if (debugflag4) {
-            USLOSS_Console("diskDriver: moving disk head to track \n");
+            USLOSS_Console("diskDriver: moving disk head to track %d\n", req->track);
         }
         diskSeek(unit, req->track);
 
@@ -416,12 +422,35 @@ static int DiskDriver(char *arg) {
             USLOSS_DeviceRequest singleRequest;
             singleRequest.opr = req->reqType;
             
+            // TODO: change track when i >= 16
+
             // sector changes depending on i
             singleRequest.reg1 = (void *) ((req->startSector + i) % 16);
 
             // address changes depending on which sector we are visiting.
-            singleRequest.reg2 = &(req->buffer) + (512 * i);
+            singleRequest.reg2 = &req->buffer;
+
+            // set type
+            singleRequest.opr = req->reqType;
+
+            // dev output and waitdev
+            if (debugflag4) {
+                USLOSS_Console("diskDriver(): sending devOut the following request\n");
+                USLOSS_Console("\treg1 has sector:%d\n", singleRequest.reg1);
+                USLOSS_Console("\treg2 has buffer\n");
+                USLOSS_Console("\topr has requesttype\n");
+            }
+            USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &singleRequest);
+            int result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+            if (result != 0 && debugflag4) {
+                USLOSS_Console("diskDriver(): waitDevice for singleRequest returned non-zero value\n");
+            }
+
+            if (debugflag4) {
+                USLOSS_Console("diskDriver(): singleRequest buffer contains: %d\n", req->buffer);
+            }
         }
+
         if (debugflag4) {
             USLOSS_Console("diskDriver: request for loop end\n");
         }

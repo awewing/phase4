@@ -45,12 +45,13 @@
  void diskRequest(request req, int unit);
 
  void check_kernel_mode(char* name);
+ void setUserMode();
 /***********************************************/
 
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 0;
+ int debugflag4 = 1;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -141,6 +142,7 @@ void start3(void) {
     for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
         // specify which disk unit this is
         sprintf(diskbuf, "%d", i);
+        sprintf(name, "DiskDriver%d", i);
 
         // create the disk driver for this unit
         diskpid[i] = fork1(name, DiskDriver, diskbuf, USLOSS_MIN_STACK, 2);
@@ -161,6 +163,7 @@ void start3(void) {
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
         // specify which terminal unit this is
         sprintf(termbuf, "%d", i);
+        sprintf(name, "TermDriver%d", i);
 
         // create the terminal driver for this unit
         termpid[i][0] = fork1(name, TermDriver, termbuf, USLOSS_MIN_STACK, 2);
@@ -169,6 +172,7 @@ void start3(void) {
             USLOSS_Halt(1);
         }
 
+        sprintf(name, "TermReader%d", i);
         // create terminal reader
         termpid[i][1] = fork1(name, TermReader, termbuf, USLOSS_MIN_STACK, 2);
         if (termpid[i][1] < 0) {
@@ -176,6 +180,7 @@ void start3(void) {
             USLOSS_Halt(1);
         }
 
+        sprintf(name, "TermWriter%d", i);
         // create terminal writer
         termpid[i][2] = fork1(name, TermWriter, termbuf, USLOSS_MIN_STACK, 2);
         if (termpid[i][2] < 0) {
@@ -408,8 +413,9 @@ static int TermDriver(char *arg) {
         USLOSS_Console("process %d: TermDriver%d started\n", getpid(), unit);
     }
 
-    // Let the parent know we are running
+    // Let the parent know we are running and enable interrupts.
     semvReal(running);
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // turn on read interrupts
     long control = 0;
@@ -425,7 +431,7 @@ static int TermDriver(char *arg) {
     // Infinite loop until we are zap'd
     while (!isZapped()) {
         // wait to run, if something is wrong quit
-        int result = waitDevice(USLOSS_TERM_INT, 0, &status);
+        int result = waitDevice(USLOSS_TERM_INT, unit, &status);
         if (result != 0) {
             quit(0);
         }
@@ -433,15 +439,33 @@ static int TermDriver(char *arg) {
         // check for receive character
         if (USLOSS_TERM_STAT_RECV(status) == USLOSS_DEV_BUSY && !terminateTerm) {
             char c = USLOSS_TERM_STAT_CHAR(status);
+
+            if (debugflag4) {
+                USLOSS_Console("TermDriver%d: reading\n", unit);
+            }
+
             // send message saying that a char needs to be received
-            MboxSend(charReceiveBox[unit], &c, sizeof(int));
+            int r = MboxSend(charReceiveBox[unit], &c, sizeof(int));
+
+            if (debugflag4 && r < 0) {
+                USLOSS_Console("TermDriver%d: failed to send for reading\n", unit);
+            }
         }
 
         // check for send character
         if (USLOSS_TERM_STAT_XMIT(status) == USLOSS_DEV_READY && !terminateTerm) {
             char c = USLOSS_TERM_STAT_CHAR(status);
+
+            if (debugflag4) {
+                USLOSS_Console("TermDriver%d: writing\n", unit);
+            }
+
             // send message saying that a char needs to be sent
-            MboxSend(charSendBox[unit], &c, sizeof(int));
+            int r = MboxSend(charSendBox[unit], &c, sizeof(int));
+
+            if (debugflag4 && r < 0) {
+                USLOSS_Console("TermDriver%d: failed to send for reading\n", unit);
+            }
         }
     }
 
@@ -453,15 +477,20 @@ static int TermReader(char *arg) {
     int pos = 0;  // position in the line to write a character
     char line[MAXLINE];
 
-    // Let the parent know we are running
+    // Let the parent know we are running and enable interrupts.
     semvReal(running);
-    
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);   
+ 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
         char receive[1]; // to hold the receive character
 
         // wait until there is a character to read in
         MboxReceive(charReceiveBox[unit], receive, MAXLINE);
+
+        if (debugflag4) {
+            USLOSS_Console("TermReader%d: awake with %c\n", unit, receive[0]);
+        }
 
         if (!terminateTerm) {
             break;
@@ -492,8 +521,9 @@ static int TermReader(char *arg) {
 static int TermWriter(char *arg) {
     int unit = atoi(arg);
 
-    // Let the parent know we are running
+    // Let the parent know we are running and enable interrupts.
     semvReal(running);
+    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
     while (!isZapped()) {
@@ -503,7 +533,11 @@ static int TermWriter(char *arg) {
         long cntr = 0;
         cntr = USLOSS_TERM_CTRL_XMIT_INT(cntr);
         cntr = USLOSS_TERM_CTRL_RECV_INT(cntr);
-        USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) cntr);
+        int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void *) cntr);
+        if (res != USLOSS_DEV_OK) {
+            USLOSS_Console("process %d: TermWriter%d quit unexpectadly.Res: %d\n",getpid(),unit,res);
+            USLOSS_Halt(0);
+        }
 
         // wait until temWriteReal sends a line
         MboxReceive(lineWriteBox[unit], receive, MAXLINE);
@@ -516,12 +550,11 @@ static int TermWriter(char *arg) {
         for (int i = 0; i < strlen(receive); i++) {
             // get the character from term driver
             char c[1];
-            MboxReceive(charReceiveBox[unit], c, MAXLINE);
+            MboxReceive(charSendBox[unit], c, MAXLINE);
 
             // transmit the character
             long control = 0;
             control = USLOSS_TERM_CTRL_CHAR(control, c[0]);
-            control = USLOSS_TERM_CTRL_XMIT_INT(control);
             control = USLOSS_TERM_CTRL_XMIT_CHAR(control);
 
             // check if returned properly
@@ -566,6 +599,8 @@ static void sleep(systemArgs *args) {
     else {
         args->arg4 = (void *) 0L;
     }
+
+    setUserMode();
 }
 
 static void diskRead(systemArgs *args) {
@@ -592,6 +627,8 @@ static void diskRead(systemArgs *args) {
     // set the args
     args->arg1 = (void *) status;
     args->arg4 = (void *) 0L;
+
+    setUserMode();
 }
 
 static void diskWrite(systemArgs *args) {
@@ -618,6 +655,8 @@ static void diskWrite(systemArgs *args) {
     // set the args
     args->arg1 = (void *) status;
     args->arg4 = (void *) 0L;
+
+    setUserMode();
 }
 
 static void diskSize(systemArgs *args) {
@@ -657,8 +696,9 @@ static void diskSize(systemArgs *args) {
     args->arg2 = (void *) trackL;
     args->arg3 = (void *) diskL;
     args->arg4 = (void *) 0L;
-}
 
+    setUserMode();
+}
 
 static void termRead(systemArgs *args) {
     if (debugflag4) {
@@ -682,6 +722,8 @@ static void termRead(systemArgs *args) {
     // set the args
     args->arg2 = (void *) status;
     args->arg4 = (void *) 0L;
+
+    setUserMode();
 }
 
 static void termWrite(systemArgs *args) {
@@ -706,6 +748,8 @@ static void termWrite(systemArgs *args) {
     // set the args
     args->arg2 = (void *) status;
     args->arg4 = (void *) 0L;
+
+    setUserMode();
 }
 
 int sleepReal(int seconds) {
@@ -930,12 +974,13 @@ int termWriteReal(int unit, int size, char *text) {
     return result;
 }
 
-/*
- * Checks if we are in Kernel mode
- */
 void check_kernel_mode(char *name) {
     if ((USLOSS_PSR_CURRENT_MODE & USLOSS_PsrGet()) == 0) {
         USLOSS_Console("%s(): Called while in user mode by process %d. Halting...\n",name, getpid());
         USLOSS_Halt(1);
     }
+}
+
+void setUserMode() {
+    USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
 }

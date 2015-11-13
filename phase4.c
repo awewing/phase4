@@ -51,7 +51,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 1;
+ int debugflag4 = 0;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -462,7 +462,7 @@ static int TermDriver(char *arg) {
     // Infinite loop until we are zap'd
     while (!isZapped()) {
         // wait to run, if something is wrong quit
-        int result = waitDevice(USLOSS_TERM_INT, unit, &status);
+        int result = waitDevice(USLOSS_TERM_DEV, unit, &status);
         if (result != 0) {
             quit(0);
         }
@@ -788,6 +788,8 @@ int sleepReal(int seconds) {
         USLOSS_Console("process %d: sleepReal\n", getpid());
     }
 
+    check_kernel_mode("sleepReal");
+
     // check for invalid input
     if (seconds < 0) {
         return 1;
@@ -832,6 +834,8 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
         USLOSS_Console("process %d: diskReadReal\n", getpid());
     }
     
+    check_kernel_mode("termReadReal");
+
     // create request struct
     request req;
     req.track = track;
@@ -861,6 +865,8 @@ int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
     if (debugflag4) {
         USLOSS_Console("process %d: diskWriteReal\n", getpid());
     }
+
+    check_kernel_mode("diskWriteReal");
 
     // create request struct
     request req;
@@ -964,6 +970,8 @@ int diskSizeReal(int unit, int *sector, int *track, int *disk) {
         USLOSS_Console("process %d: diskSizeReal\n", getpid());
     }
 
+    check_kernel_mode("diskSizeReal");
+
     // check if unit is valid
     if (unit < 0 || unit > USLOSS_DISK_UNITS) {
         return -1;
@@ -1008,7 +1016,20 @@ int termReadReal(int unit, int size, char *buffer) {
         USLOSS_Console("process %d: termReadReal\n", getpid());
     }
 
+    check_kernel_mode("termReadReal");
+
+    // check bad input
+    if (unit < 0 || size < 0) {
+        return -1;
+    }
+
     char in[MAXLINE];
+
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
+        long control = 0;
+        control = USLOSS_TERM_CTRL_RECV_INT(control);
+        int res = USLOSS_DeviceOutput(USLOSS_TERM_DEV, i, (void *) control);
+    }
 
     // check for a line to read
     int result = MboxReceive(lineReadBox[unit], in, size);
@@ -1026,6 +1047,13 @@ int termReadReal(int unit, int size, char *buffer) {
 int termWriteReal(int unit, int size, char *text) {
     if (debugflag4) {
         USLOSS_Console("process %d: termWriteReal\n", getpid());
+    }
+
+    check_kernel_mode("termWriteReal");
+
+    // check bad input
+    if (unit < 0 || size < 0) {
+        return -1;
     }
 
     // send its pid

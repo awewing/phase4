@@ -50,7 +50,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 1;
+ int debugflag4 = 0;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -227,7 +227,7 @@ void start3(void) {
 
     // TODO: more than one term flag? one for each loop
     terminateTerm = 0;
-/*
+
     // close out the term files
     FILE *file = fopen("term0.in", "a");
     fprintf(file, "\x03");
@@ -248,7 +248,7 @@ void start3(void) {
     if (debugflag4) {
         USLOSS_Console("wrote end of text characters\n");
     }
-*/
+
     // term reader
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
         MboxSend(charReceiveBox[i], "c", MAXLINE);
@@ -732,19 +732,19 @@ int sleepReal(int seconds) {
         	waitQ = &(ProcTable[pid]);
         }
     }
-   	else{
-    	procPtr curr = waitQ;
-    	procPtr prev = NULL;
+    else{
+        procPtr curr = waitQ;
+        procPtr prev = NULL;
 
-    	// iterate
-    	while (curr != NULL && curr->wakeUpTime < wakeTime){
-    		prev = curr;
-    		curr = curr->nextWakeUp;
-    	}
+        // iterate
+        while (curr != NULL && curr->wakeUpTime < wakeTime){
+            prev = curr;
+            curr = curr->nextWakeUp;
+        }
 
-    	// insert
-    	prev->nextWakeUp = &(ProcTable[pid]);
-    	ProcTable[pid].nextWakeUp = curr;
+        // insert
+        prev->nextWakeUp = &(ProcTable[pid]);
+        ProcTable[pid].nextWakeUp = curr;
     }
 
     // put the process to sleep by blocking until driver wakes it up

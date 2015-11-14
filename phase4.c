@@ -52,7 +52,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 0;
+ int debugflag4 = 1;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -395,10 +395,10 @@ static int DiskDriver(char *arg) {
         }
 
         // enter mutex
-        // sempReal(diskQSem[unit]);
-        // if (debugflag4) {
-        //     USLOSS_Console("diskDriver(): in Q sem mutex\n");
-        // }
+        sempReal(diskQSem[unit]);
+        if (debugflag4) {
+            USLOSS_Console("diskDriver(): in Q sem mutex\n");
+        }
 
         // if topQ empty, switch Qs
         if (topQ[unit] == NULL) {
@@ -425,6 +425,12 @@ static int DiskDriver(char *arg) {
         if (debugflag4) {
             USLOSS_Console("diskDriver: returned from diskRequestExec with %s\n", req->buffer);
             USLOSS_Console("diskDriver: semvReal on process %d", req->waitingPID);
+        }
+
+        // exit mutex
+        semvReal(diskQSem[unit]);
+        if (debugflag4) {
+            USLOSS_Console("releasing Q sem mutex\n");
         }
 
         // wake process waiting on the disk action 
@@ -996,6 +1002,12 @@ void diskRequest(request req, int unit) {
         USLOSS_Console("diskReques(%d)\n", unit);
     }
 
+    // entering disk Q mutex
+    sempReal(diskQSem[unit]);
+    if (debugflag4) {
+        USLOSS_Console("diskRequest(): entering disk Q sem mutex\n");
+    }
+
     // insert in topQ
     if (req.track > diskArm[unit]) {
         if (debugflag4) {
@@ -1058,6 +1070,12 @@ void diskRequest(request req, int unit) {
     // wake up disk
     if (debugflag4) {
         USLOSS_Console("diskRequest: waking up disk driver\n");
+    }
+
+    // leaving mutex
+    semvReal(diskQSem[unit]);
+    if (debugflag4) {
+        USLOSS_Console("diskRequest(): releasing disk Q sem mutex\n");
     }
     semvReal(diskSem[unit]);
 }

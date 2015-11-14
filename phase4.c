@@ -361,7 +361,7 @@ static int DiskDriver(char *arg) {
 
     // Let the parent know we are running and enable interrupts. (should this be below init?)
     semvReal(running);
-    USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+    // USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
     while (!isZapped() && terminateDisk) {
@@ -430,7 +430,6 @@ void diskRequestExec(reqPtr req, int unit) {
             USLOSS_Console("diskRequests: request for loop begin \n");
         }
 
-
         for (int i = 0; i < req->numSectors; i++) {
             USLOSS_DeviceRequest singleRequest;
             singleRequest.opr = req->reqType;
@@ -438,10 +437,10 @@ void diskRequestExec(reqPtr req, int unit) {
             // TODO: change track when i >= 16
 
             // sector changes depending on i
-            singleRequest.reg1 = (void *) req->startSector;
+            singleRequest.reg1 = (void *) ((req->startSector + (i)) % 16);
 
             // address changes depending on which sector we are visiting.
-            singleRequest.reg2 = req->buffer;
+            singleRequest.reg2 = &(req->buffer[i * 512]);
 
             // set type
             singleRequest.opr = req->reqType;
@@ -902,7 +901,7 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
     req.startSector = first;
     req.numSectors = sectors;
     req.waitingPID = getpid();
-    req.buffer = &buffer;
+    req.buffer = buffer;
     req.reqType = USLOSS_DISK_READ;
     req.nextReq = NULL; 
 
@@ -917,11 +916,13 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
         USLOSS_Console("diskReadReal(): blocking calling process\n");
     }
     sempReal(ProcTable[getpid() % MAXPROC].procDiskSem);
-
     if (debugflag4) {
-        USLOSS_Console("diskReadReal(): got the string: %s\n", buffer);
-        USLOSS_Console("diskReadReal(): req buffer: %s\n", req.buffer);
+        USLOSS_Console("diskReadReal(): no longer blocked, ready to return\n");
     }
+    // if (debugflag4) {
+    //     USLOSS_Console("diskReadReal(): got the string: %s\n", buffer);
+    //     USLOSS_Console("diskReadReal(): req buffer: %s\n", req.buffer);
+    // }
     return 0;
 }
 

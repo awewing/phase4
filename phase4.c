@@ -47,12 +47,14 @@
 
  void check_kernel_mode(char* name);
  void setUserMode();
+ void printQ(int unit);
 /***********************************************/
 
 /************************************************
  * Globals
  ***********************************************/
  int debugflag4 = 0;
+ int sdebug = 0;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -1095,6 +1097,14 @@ void diskRequest(request req, int unit) {
         }
     }
 
+    // done with insertion
+    if (debugflag4 || sdebug) {
+        USLOSS_Console("Done with insertion\n");
+    }
+    if (sdebug) {
+        printQ(unit);        
+    }
+
     // wake up disk
     if (debugflag4) {
         USLOSS_Console("diskRequest: waking up disk driver\n");
@@ -1152,6 +1162,7 @@ void diskSeek(int unit, int track) {
     if (result != 0) {
         USLOSS_Console("diskSeek(): waitDevice returned non-zero value\n");
     }
+    diskArm[unit] = track;
 }
 
 int termReadReal(int unit, int size, char *buffer) {
@@ -1223,4 +1234,47 @@ void check_kernel_mode(char *name) {
 
 void setUserMode() {
     USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
+}
+
+void printQ(int unit) {
+    reqPtr curr = topQ[unit];
+
+    // print topQ
+    USLOSS_Console("TOPQ:\n");
+    while (curr != NULL) {
+        if (curr->reqType == USLOSS_DISK_WRITE) {
+            USLOSS_Console("write:%d ---> ", curr->track);
+        }
+        else if (curr->reqType == USLOSS_DISK_READ) {
+            USLOSS_Console("write:%d ---> ", curr->track);
+        }
+        else {
+            USLOSS_Console("weirdRequest:%d ---> ", curr->track);
+        }
+
+        //inc curr
+        curr = curr->nextReq;
+    }
+    USLOSS_Console("NULL\n\n");
+
+    USLOSS_Console("Disk head: %d\n\n", diskArm[unit]);
+
+    // print bottomQ
+    USLOSS_Console("BOTTOMQ\n");
+    curr = bottomQ[unit];
+    while (curr != NULL) {
+        if (curr->reqType == USLOSS_DISK_WRITE) {
+            USLOSS_Console("write:%d ---> ", curr->track);
+        }
+        else if (curr->reqType == USLOSS_DISK_READ) {
+            USLOSS_Console("write:%d ---> ", curr->track);
+        }
+        else {
+            USLOSS_Console("weirdRequest:%d ---> ", curr->track);
+        }
+
+        //inc curr
+        curr = curr->nextReq;
+    }
+    USLOSS_Console("NULL\n\n");
 }

@@ -52,7 +52,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 0;
+ int debugflag4 = 1;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -391,6 +391,8 @@ static int DiskDriver(char *arg) {
                 USLOSS_Console("\ttopQ[%d] is null\n", unit);
             }
         }
+
+        // if topQ empty, switch Qs
         reqPtr req = topQ[unit];
         if (debugflag4) {
             USLOSS_Console("diskDriver: request on track %d reading from sector %d for %d sectors\n", 
@@ -889,6 +891,14 @@ int sleepReal(int seconds) {
 }
 
 int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
+    // check validity of input
+    if (unit >= USLOSS_DISK_UNITS || track >= numTracks[unit] || first >= USLOSS_DISK_TRACK_SIZE) {
+        if (debugflag4) {
+            USLOSS_Console("diskReadReal(): invalid args\n");
+        }
+        return -1;
+    }
+
     if (debugflag4) {
         USLOSS_Console("process %d: diskReadReal\n", getpid());
     }
@@ -927,6 +937,14 @@ int diskReadReal(int unit, int track, int first, int sectors, void *buffer) {
 }
 
 int diskWriteReal(int unit, int track, int first, int sectors, void *buffer) {
+    // check validity of input
+    if (unit >= USLOSS_DISK_UNITS || track >= numTracks[unit] || first >= USLOSS_DISK_TRACK_SIZE) {
+        if (debugflag4) {
+            USLOSS_Console("diskWriteReal(): invalid args\n");
+        }
+        return -1;
+    }
+
     if (debugflag4) {
         USLOSS_Console("process %d: diskWriteReal\n", getpid());
         USLOSS_Console("\tstring write is %s\n", buffer);

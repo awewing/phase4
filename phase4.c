@@ -52,7 +52,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 1;
+ int debugflag4 = 0;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -70,6 +70,7 @@
  int ints[USLOSS_TERM_UNITS];
 
 int diskSem[USLOSS_DISK_UNITS];
+int diskQSem[USLOSS_DISK_UNITS];
 reqPtr topQ[USLOSS_DISK_UNITS];
 reqPtr bottomQ[USLOSS_DISK_UNITS];
 int diskReq[USLOSS_DISK_UNITS];
@@ -331,6 +332,7 @@ static int DiskDriver(char *arg) {
     topQ[unit] = NULL;
     bottomQ[unit] = NULL;
     diskSem[unit] = semcreateReal(0);
+    diskQSem[unit] = semcreateReal(1);
     diskReq[unit] = semcreateReal(0);
     diskArm[unit] = 0;
 
@@ -392,8 +394,19 @@ static int DiskDriver(char *arg) {
             }
         }
 
+        // enter mutex
+        // sempReal(diskQSem[unit]);
+        // if (debugflag4) {
+        //     USLOSS_Console("diskDriver(): in Q sem mutex\n");
+        // }
+
         // if topQ empty, switch Qs
+        if (topQ[unit] == NULL) {
+            topQ[unit] = bottomQ[unit];
+            bottomQ[unit] = NULL;
+        }
         reqPtr req = topQ[unit];
+
         if (debugflag4) {
             USLOSS_Console("diskDriver: request on track %d reading from sector %d for %d sectors\n", 
                 req->track, req->startSector, req->numSectors);

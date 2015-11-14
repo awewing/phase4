@@ -52,7 +52,7 @@
 /************************************************
  * Globals
  ***********************************************/
- int debugflag4 = 1;
+ int debugflag4 = 0;
  int terminateClock;
  int terminateDisk;
  int terminateTerm;
@@ -1033,8 +1033,15 @@ void diskRequest(request req, int unit) {
             if (debugflag4) {
                 USLOSS_Console("diskRequest: inserting in non-empty Q\n");
             }
-            prev->nextReq = &req;
-            req.nextReq = curr;
+
+            if (prev == NULL) {
+                req.nextReq = topQ[unit];
+                topQ[unit] = &req;
+            }
+            else {
+                prev->nextReq = &req;
+                req.nextReq = curr;
+            }
         }
     }
 
@@ -1062,8 +1069,14 @@ void diskRequest(request req, int unit) {
             if (debugflag4) {
                 USLOSS_Console("diskRequest: inserting in non-empty Q\n");
             }
-            prev->nextReq = &req;
-            req.nextReq = curr;
+            if (prev == NULL) {
+                req.nextReq = bottomQ[unit];
+                bottomQ[unit] = &req;
+            }
+            else {
+                prev->nextReq = &req;
+                req.nextReq = curr;
+            }
         }
     }
 

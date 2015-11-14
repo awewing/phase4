@@ -1026,7 +1026,15 @@ void diskRequest(request req, int unit) {
         else {
             reqPtr curr = topQ[unit];
             reqPtr prev = NULL;
+
+            // find place by track
             while (curr != NULL && curr->track < req.track) {
+                prev = curr;
+                curr = curr->nextReq;
+            }
+
+            // find place by sector
+            while(curr != NULL && curr->startSector < req.startSector) {
                 prev = curr;
                 curr = curr->nextReq;
             }
@@ -1062,7 +1070,14 @@ void diskRequest(request req, int unit) {
         else {
             reqPtr curr = bottomQ[unit];
             reqPtr prev = NULL;
+            // find place by track
             while (curr != NULL && curr->track < req.track) {
+                prev = curr;
+                curr = curr->nextReq;
+            }
+
+            // find place by sector
+            while(curr != NULL && curr->startSector < req.startSector) {
                 prev = curr;
                 curr = curr->nextReq;
             }
